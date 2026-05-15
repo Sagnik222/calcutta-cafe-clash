@@ -210,10 +210,10 @@ function CafeCardImage({ cafe }: { cafe: Cafe }) {
 function Result({ picks, onShare, onAgain }: { picks: string[]; onShare: () => void; onAgain: () => void }) {
   return (
     <div className="px-6 pt-10 pb-10">
-      <div className="smallcaps text-sepia" style={{ fontSize: 10, letterSpacing: "0.2em" }}>
+      <div className="smallcaps" style={{ fontSize: 9, letterSpacing: "2.5px", color: "#8B6F47", marginBottom: 4 }}>
         Final Ranking
       </div>
-      <h2 className="font-display text-forest mt-3" style={{ fontSize: 24, fontWeight: 500, lineHeight: 1.2 }}>
+      <h2 className="font-display text-forest" style={{ fontSize: 24, fontWeight: 500, lineHeight: 1.2 }}>
         Your South Kolkata Top V
       </h2>
       <div className="hairline mt-4" style={{ width: 32 }} />
