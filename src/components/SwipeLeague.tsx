@@ -103,8 +103,8 @@ function Welcome({ onBegin }: { onBegin: () => void }) {
   );
 }
 
-function Battle({ round, picks, onPick }: { round: number; picks: string[]; onPick: (id: string) => void }) {
-  const [pair] = [BATTLES[round]];
+function Battle({ round, onPick }: { round: number; onPick: (id: string) => void }) {
+  const pair = BATTLES[round];
   const a = CAFES[pair[0]];
   const b = CAFES[pair[1]];
   const [chosen, setChosen] = useState<string | null>(null);
@@ -114,11 +114,6 @@ function Battle({ round, picks, onPick }: { round: number; picks: string[]; onPi
     setChosen(id);
     onPick(id);
   };
-
-  // reset chosen when round changes
-  if (chosen && !picks.includes(chosen) && picks.length === round) {
-    // no-op; new round mounts fresh below via key
-  }
 
   return (
     <div className="px-6 pt-8 pb-6">
