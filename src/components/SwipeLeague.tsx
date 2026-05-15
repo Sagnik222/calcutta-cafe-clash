@@ -35,7 +35,7 @@ export default function App() {
     <div className="min-h-screen bg-paper text-ink font-body" style={{ maxWidth: 430, margin: "0 auto", paddingBottom: showNav ? 72 : 0 }}>
       {screen === "welcome" && <Welcome onBegin={goBattle} />}
       {screen === "battle" && tab === "battle" && (
-        <Battle round={round} picks={picks} onPick={onPick} />
+        <Battle key={round} round={round} onPick={onPick} />
       )}
       {screen === "result" && (
         <Result picks={picks} onShare={() => setScreen("share")} onAgain={goBattle} />
