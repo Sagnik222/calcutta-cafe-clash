@@ -116,12 +116,17 @@ function Battle({ round, onPick }: { round: number; onPick: (id: string) => void
   };
 
   return (
-    <div className="px-6 pt-8 pb-6">
-      <div className="smallcaps text-sepia" style={{ fontSize: 10, letterSpacing: "0.15em" }}>
-        Round {ROMAN[round]} of V
+    <div className="px-6 pt-8 pb-6 flex flex-col" style={{ minHeight: "calc(100vh - 72px)" }}>
+      <div>
+        <div className="smallcaps text-sepia" style={{ fontSize: 10, letterSpacing: "0.15em" }}>
+          Round {ROMAN[round]} of V
+        </div>
+        <div className="text-sepia mt-2" style={{ fontSize: 14, letterSpacing: "0.4em" }}>
+          · · ·
+        </div>
       </div>
 
-      <div className="mt-8 space-y-5">
+      <div className="flex-1 flex flex-col justify-center gap-4 py-6">
         <CafeCard cafe={a} chosen={chosen === a.id} dim={chosen !== null && chosen !== a.id} onClick={() => handle(a.id)} />
         <div className="text-center font-display italic text-sepia" style={{ fontSize: 16 }}>
           — or —
@@ -132,7 +137,7 @@ function Battle({ round, onPick }: { round: number; onPick: (id: string) => void
       <button
         disabled={!chosen}
         onClick={() => chosen && handle(chosen)}
-        className="smallcaps text-cream w-full mt-10"
+        className="smallcaps text-cream w-full"
         style={{
           background: "#1F4D3C",
           color: "#FBF6E9",
@@ -146,10 +151,6 @@ function Battle({ round, onPick }: { round: number; onPick: (id: string) => void
       >
         Cast Your Vote
       </button>
-
-      <div className="text-center text-sepia mt-8" style={{ fontSize: 14, letterSpacing: "0.4em" }}>
-        · · ·
-      </div>
     </div>
   );
 }
@@ -158,20 +159,20 @@ function CafeCard({ cafe, chosen, dim, onClick }: { cafe: Cafe; chosen: boolean;
   return (
     <button
       onClick={onClick}
-      className={`w-full text-left rounded-[6px] flex items-center gap-4 ${chosen ? "card-selected pulse-once" : "card-unselected"}`}
+      className={`w-full text-left rounded-[6px] overflow-hidden block ${chosen ? "card-selected pulse-once" : "card-unselected"}`}
       style={{
         background: "#FBF6E9",
-        padding: 14,
         opacity: dim ? 0.5 : 1,
         transition: "opacity 250ms, transform 200ms",
+        outline: "none",
       }}
     >
-      <CafeImage cafe={cafe} size={56} />
-      <div className="flex-1 min-w-0">
-        <div className="font-display text-ink" style={{ fontSize: 16, fontWeight: 500, lineHeight: 1.2 }}>
+      <CafeCardImage cafe={cafe} />
+      <div style={{ padding: 16 }}>
+        <div className="font-display text-ink" style={{ fontSize: 18, fontWeight: 500, lineHeight: 1.2 }}>
           {cafe.name}
         </div>
-        <div className="font-body italic text-sepia mt-0.5" style={{ fontSize: 11 }}>
+        <div className="font-body italic text-sepia mt-1" style={{ fontSize: 12 }}>
           {cafe.neighborhood}
         </div>
         <div className="mt-2 inline-block">
@@ -181,6 +182,28 @@ function CafeCard({ cafe, chosen, dim, onClick }: { cafe: Cafe; chosen: boolean;
         </div>
       </div>
     </button>
+  );
+}
+
+function CafeCardImage({ cafe }: { cafe: Cafe }) {
+  const [err, setErr] = useState(false);
+  if (err || !cafe.image) {
+    return (
+      <div className="w-full flex items-center justify-center" style={{ height: 160, background: "#6B4423" }}>
+        <span className="font-display italic" style={{ fontSize: 56, color: "#FBF6E9" }}>
+          {cafe.name[0]}
+        </span>
+      </div>
+    );
+  }
+  return (
+    <img
+      src={cafe.image}
+      onError={() => setErr(true)}
+      alt={cafe.name}
+      className="w-full object-cover block"
+      style={{ height: 160, filter: "saturate(0.75) sepia(0.08)" }}
+    />
   );
 }
 
