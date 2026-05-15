@@ -1,26 +1,18 @@
 import { createFileRoute } from "@tanstack/react-router";
+import SwipeLeague from "@/components/SwipeLeague";
 
 export const Route = createFileRoute("/")({
+  head: () => ({
+    meta: [
+      { title: "SwipeLeague — Kolkata, ranked by you" },
+      { name: "description", content: "Five quick head-to-head battles between South Kolkata cafés. Get your personal Top V." },
+      { property: "og:title", content: "SwipeLeague — Kolkata, ranked by you" },
+      { property: "og:description", content: "A swipe-based discovery game for Kolkata cafés." },
+    ],
+  }),
   component: Index,
 });
 
-// IMPORTANT: Replace this placeholder. For sites with multiple pages (About, Services, Contact, etc.),
-// create separate route files (about.tsx, services.tsx, contact.tsx) — don't put all pages in this file.
-function PlaceholderIndex() {
-  return (
-    <div
-      className="flex min-h-screen items-center justify-center"
-      style={{ backgroundColor: "#fcfbf8" }}
-    >
-      <img
-        data-lovable-blank-page-placeholder="REMOVE_THIS"
-        src="https://cdn.gpteng.co/blank-app-v1.svg"
-        alt="Your app will live here!"
-      />
-    </div>
-  );
-}
-
 function Index() {
-  return <PlaceholderIndex />;
+  return <SwipeLeague />;
 }
