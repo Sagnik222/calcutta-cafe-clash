@@ -66,8 +66,15 @@
     border: 0.5px solid rgba(139, 111, 71, 0.4);
   }
   .card-selected {
-    border: 1.5px solid #1F4D3C;
-    box-shadow: 2px 2px 0 #1F4D3C;
+    border: 2px solid #1F4D3C;
+    box-shadow: 3px 3px 0 #1F4D3C;
+    outline: none;
+  }
+  .card-unselected:focus,
+  .card-selected:focus,
+  .card-unselected:focus-visible,
+  .card-selected:focus-visible {
+    outline: none;
   }
   .pulse-once {
     animation: pulseOnce 300ms ease-out;
