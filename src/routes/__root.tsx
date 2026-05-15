@@ -72,14 +72,18 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Lovable App" },
-      { name: "description", content: "Lovable Generated Project" },
+      { title: "SwipeLeague" },
+      { name: "description", content: "Kolkata ranked by you" },
       { name: "author", content: "Lovable" },
-      { property: "og:title", content: "Lovable App" },
-      { property: "og:description", content: "Lovable Generated Project" },
+      { property: "og:title", content: "SwipeLeague" },
+      { property: "og:description", content: "Kolkata ranked by you" },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
       { name: "twitter:site", content: "@Lovable" },
+      { name: "twitter:title", content: "SwipeLeague" },
+      { name: "twitter:description", content: "Kolkata ranked by you" },
+      { property: "og:image", content: "https://storage.googleapis.com/gpt-engineer-file-uploads/f1JcEWNCEtOAEOorDQRu2yge2Gm1/social-images/social-1778846488414-WhatsApp_Image_2026-05-15_at_5.30.19_PM.webp" },
+      { name: "twitter:image", content: "https://storage.googleapis.com/gpt-engineer-file-uploads/f1JcEWNCEtOAEOorDQRu2yge2Gm1/social-images/social-1778846488414-WhatsApp_Image_2026-05-15_at_5.30.19_PM.webp" },
     ],
     links: [
       {
