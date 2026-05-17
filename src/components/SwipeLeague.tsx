@@ -2,17 +2,19 @@ import { useState } from "react";
 import { CAFES, BATTLES, LEADERBOARD, ROMAN, type Cafe } from "@/lib/cafes";
 import { CafeImage, CafeImageById } from "@/components/CafeImage";
 
-type Screen = "welcome" | "battle" | "result" | "share" | "leaderboard";
+type Screen = "welcome" | "battle" | "rank" | "result" | "share" | "leaderboard";
 
 export default function App() {
   const [screen, setScreen] = useState<Screen>("welcome");
   const [tab, setTab] = useState<"battle" | "leaderboard">("battle");
   const [round, setRound] = useState(0);
   const [picks, setPicks] = useState<string[]>([]);
+  const [ranked, setRanked] = useState<string[]>([]);
 
   const goBattle = () => {
     setRound(0);
     setPicks([]);
+    setRanked([]);
     setTab("battle");
     setScreen("battle");
   };
@@ -22,7 +24,7 @@ export default function App() {
     setPicks(next);
     setTimeout(() => {
       if (next.length >= BATTLES.length) {
-        setScreen("result");
+        setScreen("rank");
       } else {
         setRound(round + 1);
       }
@@ -37,11 +39,14 @@ export default function App() {
       {screen === "battle" && tab === "battle" && (
         <Battle key={round} round={round} onPick={onPick} />
       )}
+      {screen === "rank" && (
+        <RankTopV picks={picks} onDone={(order) => { setRanked(order); setScreen("result"); }} />
+      )}
       {screen === "result" && (
-        <Result picks={picks} onShare={() => setScreen("share")} onAgain={goBattle} />
+        <Result picks={ranked.length ? ranked : picks} onShare={() => setScreen("share")} onAgain={goBattle} />
       )}
       {screen === "share" && (
-        <SharePreview picks={picks} onBack={() => setScreen("result")} />
+        <SharePreview picks={ranked.length ? ranked : picks} onBack={() => setScreen("result")} />
       )}
       {tab === "leaderboard" && (screen === "battle" || screen === "leaderboard") && (
         <Leaderboard />
@@ -402,5 +407,109 @@ function BottomNav({ tab, onChange }: { tab: "battle" | "leaderboard"; onChange:
         </button>
       ))}
     </nav>
+  );
+}
+
+function RankTopV({ picks, onDone }: { picks: string[]; onDone: (order: string[]) => void }) {
+  const [order, setOrder] = useState<string[]>([]);
+  const [pulseId, setPulseId] = useState<string | null>(null);
+
+  const handleTap = (id: string) => {
+    const idx = order.indexOf(id);
+    let next: string[];
+    if (idx >= 0) {
+      next = order.filter((x) => x !== id);
+    } else {
+      if (order.length >= 5) return;
+      next = [...order, id];
+      setPulseId(id);
+      setTimeout(() => setPulseId(null), 150);
+    }
+    setOrder(next);
+    if (next.length === 5) {
+      setTimeout(() => onDone(next), 600);
+    }
+  };
+
+  return (
+    <div className="px-6 pt-8 pb-10">
+      <div className="smallcaps" style={{ fontSize: 9, letterSpacing: "2.5px", color: "#8B6F47", marginBottom: 4 }}>
+        Step Two of Two
+      </div>
+      <h2 className="font-display italic text-forest" style={{ fontSize: 26, fontWeight: 500, lineHeight: 1.15 }}>
+        Now crown them.
+      </h2>
+      <p className="font-body italic text-ink mt-2" style={{ fontSize: 13 }}>
+        Tap in order of preference. Favorite first.
+      </p>
+      <div className="hairline mt-4" style={{ width: 32 }} />
+      <div className="smallcaps text-sepia mt-4" style={{ fontSize: 10, letterSpacing: "1.5px" }}>
+        {order.length} of 5 ranked
+      </div>
+
+      <ul className="mt-6 space-y-2">
+        {picks.map((id) => {
+          const cafe = CAFES[id];
+          const rankIdx = order.indexOf(id);
+          const ranked = rankIdx >= 0;
+          return (
+            <li key={id}>
+              <button
+                onClick={() => handleTap(id)}
+                className="w-full text-left rounded-[6px] flex items-center gap-3"
+                style={{
+                  background: "#FBF6E9",
+                  padding: 12,
+                  border: ranked ? "1.5px solid #1F4D3C" : "0.5px solid rgba(139,111,71,0.4)",
+                  boxShadow: ranked ? "2px 2px 0 #1F4D3C" : "none",
+                  outline: "none",
+                  transform: pulseId === id ? "scale(1.02)" : "scale(1)",
+                  transition: "transform 100ms ease-out",
+                }}
+              >
+                <div
+                  className="flex items-center justify-center shrink-0"
+                  style={{
+                    width: 36,
+                    height: 36,
+                    borderRadius: "50%",
+                    background: ranked ? "#1F4D3C" : "transparent",
+                    border: ranked ? "none" : "0.5px solid #8B6F47",
+                    transition: "background 200ms",
+                  }}
+                >
+                  {ranked && (
+                    <span
+                      className="font-display"
+                      style={{ color: "#FBF6E9", fontSize: 18, fontWeight: 500, lineHeight: 1, animation: "fadeIn 200ms ease-out" }}
+                    >
+                      {ROMAN[rankIdx]}
+                    </span>
+                  )}
+                </div>
+                <CafeImage cafe={cafe} size={48} />
+                <div className="flex-1 min-w-0">
+                  <div className="font-display text-ink" style={{ fontSize: 16, fontWeight: 500, lineHeight: 1.2 }}>
+                    {cafe.name}
+                  </div>
+                  <div className="font-body italic text-sepia" style={{ fontSize: 11 }}>
+                    {cafe.neighborhood}
+                  </div>
+                  <div className="mt-1 inline-block">
+                    <span className="dotted-under" style={{ color: "#6B4423", fontSize: 10, fontFamily: "Georgia, serif" }}>
+                      {cafe.vibe}
+                    </span>
+                  </div>
+                </div>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+
+      <p className="font-body italic text-center mt-8" style={{ fontSize: 12, color: "#8B6F47" }}>
+        Tap a ranked café to undo.
+      </p>
+    </div>
   );
 }
