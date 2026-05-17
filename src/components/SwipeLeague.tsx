@@ -9,10 +9,12 @@ export default function App() {
   const [tab, setTab] = useState<"battle" | "leaderboard">("battle");
   const [round, setRound] = useState(0);
   const [picks, setPicks] = useState<string[]>([]);
+  const [ranked, setRanked] = useState<string[]>([]);
 
   const goBattle = () => {
     setRound(0);
     setPicks([]);
+    setRanked([]);
     setTab("battle");
     setScreen("battle");
   };
@@ -22,7 +24,7 @@ export default function App() {
     setPicks(next);
     setTimeout(() => {
       if (next.length >= BATTLES.length) {
-        setScreen("result");
+        setScreen("rank");
       } else {
         setRound(round + 1);
       }
