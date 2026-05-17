@@ -2,7 +2,7 @@ import { useState } from "react";
 import { CAFES, BATTLES, LEADERBOARD, ROMAN, type Cafe } from "@/lib/cafes";
 import { CafeImage, CafeImageById } from "@/components/CafeImage";
 
-type Screen = "welcome" | "battle" | "result" | "share" | "leaderboard";
+type Screen = "welcome" | "battle" | "rank" | "result" | "share" | "leaderboard";
 
 export default function App() {
   const [screen, setScreen] = useState<Screen>("welcome");
