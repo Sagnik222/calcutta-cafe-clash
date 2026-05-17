@@ -39,11 +39,14 @@ export default function App() {
       {screen === "battle" && tab === "battle" && (
         <Battle key={round} round={round} onPick={onPick} />
       )}
+      {screen === "rank" && (
+        <RankTopV picks={picks} onDone={(order) => { setRanked(order); setScreen("result"); }} />
+      )}
       {screen === "result" && (
-        <Result picks={picks} onShare={() => setScreen("share")} onAgain={goBattle} />
+        <Result picks={ranked.length ? ranked : picks} onShare={() => setScreen("share")} onAgain={goBattle} />
       )}
       {screen === "share" && (
-        <SharePreview picks={picks} onBack={() => setScreen("result")} />
+        <SharePreview picks={ranked.length ? ranked : picks} onBack={() => setScreen("result")} />
       )}
       {tab === "leaderboard" && (screen === "battle" || screen === "leaderboard") && (
         <Leaderboard />
