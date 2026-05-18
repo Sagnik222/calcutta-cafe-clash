@@ -45,7 +45,14 @@ export default function App() {
 
   const goBattle = () => {
     if (!cafes || cafes.length < 10) return;
-    setBattles(buildBattles(cafes));
+    const pairs = buildBattles(cafes);
+    const byId: Record<string, Cafe> = {};
+    cafes.forEach((c) => { byId[c.id] = c; });
+    console.log(
+      "Battles generated for this session:",
+      pairs.map(([a, b]) => `${byId[a]?.name} vs ${byId[b]?.name}`)
+    );
+    setBattles(pairs);
     setRound(0);
     setPicks([]);
     setRanked([]);
