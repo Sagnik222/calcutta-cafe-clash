@@ -1,9 +1,9 @@
 import { useState } from "react";
-import { CAFES, type Cafe } from "@/lib/cafes";
+import type { Cafe } from "@/lib/cafes";
 
 export function CafeImage({ cafe, size = 56 }: { cafe: Cafe; size?: number }) {
   const [err, setErr] = useState(false);
-  if (err || !cafe.image) {
+  if (err || !cafe.image_url) {
     return (
       <div
         className="flex items-center justify-center rounded-[4px] shrink-0"
@@ -20,15 +20,11 @@ export function CafeImage({ cafe, size = 56 }: { cafe: Cafe; size?: number }) {
   }
   return (
     <img
-      src={cafe.image}
+      src={cafe.image_url}
       onError={() => setErr(true)}
       alt={cafe.name}
       className="object-cover rounded-[4px] shrink-0"
       style={{ width: size, height: size, filter: "saturate(0.75) sepia(0.08)" }}
     />
   );
-}
-
-export function CafeImageById({ id, size = 56 }: { id: string; size?: number }) {
-  return <CafeImage cafe={CAFES[id]} size={size} />;
 }
