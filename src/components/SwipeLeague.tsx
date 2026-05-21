@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { type Cafe, ROMAN, buildBattles } from "@/lib/cafes";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { type Cafe, ROMAN, REGIONS, type Region, buildBattles, roundsForCount, numWord } from "@/lib/cafes";
 import { CafeImage } from "@/components/CafeImage";
 import { supabase } from "@/lib/supabase";
 
@@ -17,6 +17,7 @@ export default function App() {
     supabase
       .from("cafes")
       .select("*")
+      .eq("is_published", true)
       .then(({ data, error }) => {
         if (!alive) return;
         if (error) {
@@ -24,8 +25,15 @@ export default function App() {
           setLoadError(error.message);
           return;
         }
-        console.log(`${data?.length ?? 0} cafés loaded from Supabase`);
-        setCafes((data ?? []) as Cafe[]);
+        const list = (data ?? []) as Cafe[];
+        console.log(`Total published cafés: ${list.length}`);
+        const perRegion: Record<string, number> = {};
+        list.forEach((c) => {
+          const r = c.region ?? "Unknown";
+          perRegion[r] = (perRegion[r] ?? 0) + 1;
+        });
+        console.log("Cafés per region:", perRegion);
+        setCafes(list);
       });
     return () => { alive = false; };
   }, [reloadKey]);
@@ -36,6 +44,16 @@ export default function App() {
     return m;
   }, [cafes]);
 
+  const regionCounts = useMemo(() => {
+    const m: Record<string, number> = {};
+    (cafes ?? []).forEach((c) => {
+      const r = c.region ?? "Unknown";
+      m[r] = (m[r] ?? 0) + 1;
+    });
+    return m;
+  }, [cafes]);
+
+  const [region, setRegion] = useState<Region>("All Kolkata");
   const [screen, setScreen] = useState<Screen>("welcome");
   const [tab, setTab] = useState<"battle" | "leaderboard">("battle");
   const [battles, setBattles] = useState<[string, string][]>([]);
@@ -44,13 +62,16 @@ export default function App() {
   const [ranked, setRanked] = useState<string[]>([]);
 
   const goBattle = () => {
-    if (!cafes || cafes.length < 10) return;
-    const pairs = buildBattles(cafes);
+    if (!cafes) return;
+    const pool = region === "All Kolkata" ? cafes : cafes.filter((c) => c.region === region);
+    const rounds = roundsForCount(pool.length);
+    if (rounds === 0) return;
+    const pairs = buildBattles(pool, rounds);
     const byId: Record<string, Cafe> = {};
-    cafes.forEach((c) => { byId[c.id] = c; });
+    pool.forEach((c) => { byId[c.id] = c; });
     console.log(
-      "Battles generated for this session:",
-      pairs.map(([a, b]) => `${byId[a]?.name} vs ${byId[b]?.name}`)
+      `Starting session — region: ${region}, rounds: ${rounds}, cafés:`,
+      pairs.flatMap(([a, b]) => [byId[a]?.name, byId[b]?.name]),
     );
     setBattles(pairs);
     setRound(0);
@@ -76,16 +97,26 @@ export default function App() {
   if (!cafes) return <LoadingScreen />;
 
   const showNav = screen === "battle" || screen === "leaderboard";
+  const totalRounds = battles.length;
 
   return (
     <div className="min-h-screen bg-paper text-ink font-body" style={{ maxWidth: 430, margin: "0 auto", paddingBottom: showNav ? 72 : 0 }}>
-      {screen === "welcome" && <Welcome onBegin={goBattle} />}
+      {screen === "welcome" && (
+        <Welcome
+          region={region}
+          onRegion={setRegion}
+          regionCounts={regionCounts}
+          totalCount={cafes.length}
+          onBegin={goBattle}
+        />
+      )}
       {screen === "battle" && tab === "battle" && battles[round] && (
         <Battle
           key={round}
           a={cafesById[battles[round][0]]}
           b={cafesById[battles[round][1]]}
           round={round}
+          totalRounds={totalRounds}
           onPick={onPick}
         />
       )}
@@ -98,13 +129,15 @@ export default function App() {
       {screen === "result" && (
         <Result
           picks={(ranked.length ? ranked : picks).map((id) => cafesById[id])}
+          region={region}
           onShare={() => setScreen("share")}
-          onAgain={goBattle}
+          onAgain={() => setScreen("welcome")}
         />
       )}
       {screen === "share" && (
         <SharePreview
           picks={(ranked.length ? ranked : picks).map((id) => cafesById[id])}
+          region={region}
           onBack={() => setScreen("result")}
         />
       )}
@@ -151,29 +184,118 @@ function ErrorScreen({ onRetry }: { onRetry: () => void }) {
   );
 }
 
-function Welcome({ onBegin }: { onBegin: () => void }) {
+function sessionPreview(region: Region, regionCounts: Record<string, number>, totalCount: number): string {
+  if (region === "All Kolkata") {
+    const rounds = roundsForCount(totalCount);
+    return `${numWord(rounds)} rounds. ${numWord(totalCount)} cafés across Kolkata.`;
+  }
+  const count = regionCounts[region] ?? 0;
+  const rounds = roundsForCount(count);
+  if (rounds === 0) return `${region} — coming soon.`;
+  return `${numWord(rounds)} rounds. ${numWord(count)} ${region} cafés.`;
+}
+
+function Welcome({
+  region, onRegion, regionCounts, totalCount, onBegin,
+}: {
+  region: Region;
+  onRegion: (r: Region) => void;
+  regionCounts: Record<string, number>;
+  totalCount: number;
+  onBegin: () => void;
+}) {
+  const [toast, setToast] = useState<string | null>(null);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const chipRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+
+  useEffect(() => {
+    const el = chipRefs.current[region];
+    el?.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
+  }, [region]);
+
+  const handleChip = (r: Region) => {
+    const count = r === "All Kolkata" ? totalCount : regionCounts[r] ?? 0;
+    if (roundsForCount(count) === 0) {
+      setToast(`${r} — coming soon. Cafés in curation.`);
+      window.setTimeout(() => setToast(null), 2400);
+      return;
+    }
+    onRegion(r);
+  };
+
+  const preview = sessionPreview(region, regionCounts, totalCount);
+  const canBegin = roundsForCount(region === "All Kolkata" ? totalCount : regionCounts[region] ?? 0) > 0;
+
   return (
     <div className="min-h-screen flex flex-col px-8 pt-6 relative">
       <div className="absolute top-5 right-6 smallcaps text-sepia" style={{ fontSize: 9 }}>Est. 2026</div>
-      <div className="flex-1 flex flex-col items-center justify-center text-center -mt-12">
+      <div className="flex-1 flex flex-col items-center justify-center text-center -mt-8">
         <h1 className="font-display italic text-forest" style={{ fontSize: 38, fontWeight: 500, lineHeight: 1.1 }}>SwipeLeague</h1>
         <div className="hairline mt-5" style={{ width: 32 }} />
         <div className="smallcaps text-sepia mt-5" style={{ fontSize: 10, letterSpacing: "0.2em" }}>Kolkata · Ranked by You</div>
         <button
           onClick={onBegin}
-          className="mt-14 smallcaps text-cream"
-          style={{ background: "#1F4D3C", color: "#FBF6E9", padding: "14px 56px", borderRadius: 4, fontSize: 12, letterSpacing: "0.2em", transition: "all 200ms" }}
+          disabled={!canBegin}
+          className="mt-12 smallcaps text-cream"
+          style={{ background: "#1F4D3C", color: "#FBF6E9", padding: "14px 56px", borderRadius: 4, fontSize: 12, letterSpacing: "0.2em", transition: "all 200ms", opacity: canBegin ? 1 : 0.5 }}
         >
           Begin
         </button>
-        <p className="font-body italic text-sepia mt-6" style={{ fontSize: 13 }}>Five rounds. South Kolkata cafés.</p>
+        <p className="font-body italic text-sepia mt-4" style={{ fontSize: 12 }}>{preview}</p>
+
+        <div className="font-body italic text-sepia mt-6" style={{ fontSize: 10 }}>where are we playing?</div>
+        <div
+          ref={scrollRef}
+          className="mt-2 w-full"
+          style={{ overflowX: "auto", overflowY: "hidden", WebkitOverflowScrolling: "touch", scrollbarWidth: "none" }}
+        >
+          <div style={{ display: "inline-flex", gap: 8, padding: "4px 8px", whiteSpace: "nowrap" }}>
+            {REGIONS.map((r) => {
+              const count = r === "All Kolkata" ? totalCount : regionCounts[r] ?? 0;
+              const disabled = roundsForCount(count) === 0;
+              const selected = region === r;
+              return (
+                <button
+                  key={r}
+                  ref={(el) => { chipRefs.current[r] = el; }}
+                  onClick={() => handleChip(r)}
+                  className="smallcaps shrink-0"
+                  style={{
+                    background: selected ? "#1F4D3C" : "#FBF6E9",
+                    color: selected ? "#FBF6E9" : "#1A1A1A",
+                    border: selected ? "none" : "1px solid #8B6F47",
+                    borderRadius: 2,
+                    padding: "8px 14px",
+                    fontSize: 12,
+                    letterSpacing: "0.5px",
+                    fontFamily: "Georgia, serif",
+                    boxShadow: selected ? "2px 2px 0 #6B4423" : "none",
+                    transition: "all 200ms ease",
+                    opacity: disabled ? 0.5 : 1,
+                    cursor: disabled ? "not-allowed" : "pointer",
+                  }}
+                >
+                  {r}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+        {toast && (
+          <div
+            className="font-body italic mt-4"
+            style={{ fontSize: 11, color: "#6B4423", background: "#FBF6E9", padding: "8px 14px", borderRadius: 2, border: "1px solid #8B6F47", animation: "fadeIn 200ms ease-out" }}
+          >
+            {toast}
+          </div>
+        )}
       </div>
       <div className="text-center text-sepia pb-8" style={{ fontSize: 14, letterSpacing: "0.4em" }}>· · ·</div>
     </div>
   );
 }
 
-function Battle({ a, b, round, onPick }: { a: Cafe; b: Cafe; round: number; onPick: (id: string) => void }) {
+function Battle({ a, b, round, totalRounds, onPick }: { a: Cafe; b: Cafe; round: number; totalRounds: number; onPick: (id: string) => void }) {
   const [chosen, setChosen] = useState<string | null>(null);
   const handle = (id: string) => {
     if (chosen) return;
@@ -183,7 +305,9 @@ function Battle({ a, b, round, onPick }: { a: Cafe; b: Cafe; round: number; onPi
   return (
     <div className="px-6 pt-8 pb-6 flex flex-col" style={{ minHeight: "calc(100vh - 72px)" }}>
       <div>
-        <div className="smallcaps text-sepia" style={{ fontSize: 10, letterSpacing: "0.15em" }}>Round {ROMAN[round]} of V</div>
+        <div className="smallcaps text-sepia" style={{ fontSize: 10, letterSpacing: "0.15em" }}>
+          Round {ROMAN[round]} of {ROMAN[totalRounds - 1]}
+        </div>
         <div className="text-sepia mt-2" style={{ fontSize: 14, letterSpacing: "0.4em" }}>· · ·</div>
       </div>
       <div className="flex-1 flex flex-col justify-center gap-4 py-6">
@@ -208,11 +332,11 @@ function CafeCard({ cafe, chosen, dim, onClick }: { cafe: Cafe; chosen: boolean;
   return (
     <button
       onClick={onClick}
-      className={`w-full text-left rounded-[6px] overflow-hidden block ${chosen ? "card-selected pulse-once" : "card-unselected"}`}
+      className={`w-full text-left rounded-[6px] overflow-hidden block relative ${chosen ? "card-selected pulse-once" : "card-unselected"}`}
       style={{ background: "#FBF6E9", opacity: dim ? 0.5 : 1, transition: "opacity 250ms, transform 200ms", outline: "none" }}
     >
       <CafeCardImage cafe={cafe} />
-      <div style={{ padding: 16 }}>
+      <div style={{ padding: 16, paddingBottom: 36 }}>
         <div className="font-display text-ink" style={{ fontSize: 18, fontWeight: 500, lineHeight: 1.2 }}>{cafe.name}</div>
         <div className="font-body italic text-sepia mt-1" style={{ fontSize: 12 }}>{cafe.neighborhood}</div>
         {cafe.short_description && (
@@ -240,6 +364,7 @@ function CafeCard({ cafe, chosen, dim, onClick }: { cafe: Cafe; chosen: boolean;
           </div>
         )}
       </div>
+      <RatingTag cafe={cafe} />
     </button>
   );
 }
@@ -264,11 +389,144 @@ function CafeCardImage({ cafe }: { cafe: Cafe }) {
   );
 }
 
-function Result({ picks, onShare, onAgain }: { picks: Cafe[]; onShare: () => void; onAgain: () => void }) {
+function RatingTag({ cafe }: { cafe: Cafe }) {
+  const [open, setOpen] = useState(false);
+  if (cafe.google_rating == null) return null;
+  return (
+    <>
+      <span
+        role="button"
+        tabIndex={0}
+        onClick={(e) => { e.stopPropagation(); e.preventDefault(); setOpen(true); }}
+        onMouseDown={(e) => e.stopPropagation()}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.stopPropagation(); e.preventDefault(); setOpen(true);
+          }
+        }}
+        style={{
+          position: "absolute", bottom: 8, right: 8,
+          background: "#F4ECD8", color: "#6B4423",
+          fontFamily: "Georgia, serif", fontSize: 11,
+          padding: "3px 7px", borderRadius: 2,
+          borderBottom: "1px dotted #6B4423",
+          cursor: "pointer", userSelect: "none",
+          lineHeight: 1.2, display: "inline-block",
+        }}
+      >
+        ★ {cafe.google_rating.toFixed(1)}
+      </span>
+      {open && <RatingPopup cafe={cafe} onClose={() => setOpen(false)} />}
+    </>
+  );
+}
+
+function RatingPopup({ cafe, onClose }: { cafe: Cafe; onClose: () => void }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const reviews = cafe.google_reviews ?? [];
+  return (
+    <div
+      onClick={(e) => { e.stopPropagation(); onClose(); }}
+      onMouseDown={(e) => e.stopPropagation()}
+      style={{
+        position: "fixed", inset: 0, zIndex: 50,
+        background: "rgba(26, 26, 26, 0.5)",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        padding: 16, animation: "fadeIn 200ms ease-out",
+      }}
+    >
+      <div
+        onClick={(e) => { e.stopPropagation(); }}
+        onMouseDown={(e) => e.stopPropagation()}
+        style={{
+          background: "#FBF6E9", borderRadius: 4,
+          padding: "24px 20px",
+          width: "100%", maxWidth: 420,
+          maxHeight: "80vh", overflowY: "auto",
+          boxShadow: "4px 4px 0 #1F4D3C",
+          position: "relative",
+          animation: "popIn 200ms ease-out",
+        }}
+      >
+        <button
+          onClick={(e) => { e.stopPropagation(); onClose(); }}
+          aria-label="Close"
+          style={{
+            position: "absolute", top: 10, right: 14,
+            background: "transparent", color: "#6B4423",
+            fontFamily: "Georgia, serif", fontSize: 18, lineHeight: 1,
+            cursor: "pointer", padding: 4,
+          }}
+        >
+          ×
+        </button>
+
+        <h3 className="font-display italic text-ink text-center" style={{ fontSize: 22, fontWeight: 500, lineHeight: 1.2 }}>{cafe.name}</h3>
+        <div className="font-body italic text-sepia text-center mt-1" style={{ fontSize: 12 }}>{cafe.neighborhood}</div>
+
+        <div style={{ borderBottom: "1px dotted #6B4423", width: "60%", margin: "16px auto 0" }} />
+
+        <div className="text-center mt-4">
+          <div className="font-display text-forest" style={{ fontSize: 28, fontWeight: 700, lineHeight: 1.1 }}>
+            ★ {cafe.google_rating?.toFixed(1)}
+          </div>
+          {cafe.google_review_count != null && (
+            <div className="font-body text-sepia mt-1" style={{ fontSize: 11 }}>
+              based on {cafe.google_review_count.toLocaleString()} Google reviews
+            </div>
+          )}
+        </div>
+
+        {cafe.google_about && (
+          <div className="mt-6">
+            <div className="smallcaps text-sepia" style={{ fontSize: 10, letterSpacing: "0.2em" }}>About</div>
+            <p className="font-body italic text-ink mt-2" style={{ fontSize: 13, lineHeight: 1.5 }}>{cafe.google_about}</p>
+          </div>
+        )}
+
+        {reviews.length > 0 && (
+          <div className="mt-6">
+            <div className="smallcaps text-sepia" style={{ fontSize: 10, letterSpacing: "0.2em" }}>What people say</div>
+            <div className="mt-3">
+              {reviews.map((r, i) => (
+                <div key={i} style={{ marginBottom: i < reviews.length - 1 ? 14 : 0 }}>
+                  <div style={{ display: "flex", alignItems: "flex-start", gap: 6 }}>
+                    <span className="font-display" style={{ fontSize: 24, color: "#8B6F47", lineHeight: 1, marginTop: -4 }}>“</span>
+                    <p className="font-body text-ink" style={{ fontSize: 12, lineHeight: 1.5, flex: 1 }}>{r}</p>
+                  </div>
+                  {i < reviews.length - 1 && (
+                    <div style={{ borderBottom: "1px dotted #8B6F47", marginTop: 12, opacity: 0.6 }} />
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="font-body italic text-sepia text-center mt-6" style={{ fontSize: 9 }}>
+          Reviews from Google. SwipeLeague does not verify reviews.
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function rankTitle(region: Region, n: number): string {
+  const roman = ROMAN[n - 1] ?? String(n);
+  if (region === "All Kolkata") return `Your Top ${roman}`;
+  return `Your ${region} Top ${roman}`;
+}
+
+function Result({ picks, region, onShare, onAgain }: { picks: Cafe[]; region: Region; onShare: () => void; onAgain: () => void }) {
   return (
     <div className="px-6 pt-10 pb-10">
       <div className="smallcaps" style={{ fontSize: 9, letterSpacing: "2.5px", color: "#8B6F47", marginBottom: 4 }}>Final Ranking</div>
-      <h2 className="font-display text-forest" style={{ fontSize: 24, fontWeight: 500, lineHeight: 1.2 }}>Your South Kolkata Top V</h2>
+      <h2 className="font-display text-forest" style={{ fontSize: 24, fontWeight: 500, lineHeight: 1.2 }}>{rankTitle(region, picks.length)}</h2>
       <div className="hairline mt-4" style={{ width: 32 }} />
 
       <ol className="mt-7 space-y-5">
@@ -278,13 +536,18 @@ function Result({ picks, onShare, onAgain }: { picks: Cafe[]; onShare: () => voi
             <li key={c.id} className="flex items-start gap-4">
               <div className="font-display text-ink" style={{ fontSize: 20, width: 28, textAlign: "center", lineHeight: 1.2 }}>{ROMAN[i]}</div>
               <CafeImage cafe={c} size={48} />
-              <div className="flex-1 min-w-0">
+              <div className="flex-1 min-w-0 relative" style={{ paddingRight: 56 }}>
                 <div className="font-display text-ink" style={{ fontSize: 15, fontWeight: 500 }}>{c.name}</div>
                 <div className="font-body italic text-sepia" style={{ fontSize: 11 }}>{c.neighborhood}</div>
                 {known && (
                   <div style={{ fontSize: 10, color: "#6B4423", fontFamily: "Georgia, serif", marginTop: 2 }}>
                     <span className="italic">known for </span>
                     <span className="dotted-under">{known}</span>
+                  </div>
+                )}
+                {c.google_rating != null && (
+                  <div style={{ position: "absolute", top: 0, right: 0 }}>
+                    <InlineRating cafe={c} />
                   </div>
                 )}
               </div>
@@ -301,12 +564,34 @@ function Result({ picks, onShare, onAgain }: { picks: Cafe[]; onShare: () => voi
   );
 }
 
-function SharePreview({ picks, onBack }: { picks: Cafe[]; onBack: () => void }) {
+function InlineRating({ cafe }: { cafe: Cafe }) {
+  const [open, setOpen] = useState(false);
+  if (cafe.google_rating == null) return null;
+  return (
+    <>
+      <button
+        onClick={(e) => { e.stopPropagation(); setOpen(true); }}
+        style={{
+          background: "#F4ECD8", color: "#6B4423",
+          fontFamily: "Georgia, serif", fontSize: 11,
+          padding: "3px 7px", borderRadius: 2,
+          borderBottom: "1px dotted #6B4423",
+          cursor: "pointer", lineHeight: 1.2,
+        }}
+      >
+        ★ {cafe.google_rating.toFixed(1)}
+      </button>
+      {open && <RatingPopup cafe={cafe} onClose={() => setOpen(false)} />}
+    </>
+  );
+}
+
+function SharePreview({ picks, region, onBack }: { picks: Cafe[]; region: Region; onBack: () => void }) {
   return (
     <div className="px-5 pt-6 pb-10">
       <div className="mx-auto" style={{ aspectRatio: "9 / 16", background: "#F4ECD8", padding: "28px 22px", borderRadius: 6, border: "0.5px solid rgba(139,111,71,0.4)", display: "flex", flexDirection: "column" }}>
         <div className="smallcaps text-sepia" style={{ fontSize: 9, letterSpacing: "0.25em" }}>Est. 2026</div>
-        <h2 className="font-display italic text-ink mt-3" style={{ fontSize: 28, fontWeight: 500, lineHeight: 1.1 }}>My Kolkata Top V</h2>
+        <h2 className="font-display italic text-ink mt-3" style={{ fontSize: 24, fontWeight: 500, lineHeight: 1.1 }}>My {rankTitle(region, picks.length).replace(/^Your /, "")}</h2>
         <div className="smallcaps text-sepia mt-2" style={{ fontSize: 9, letterSpacing: "0.22em" }}>A SwipeLeague ranking</div>
         <div className="hairline mt-3" style={{ width: 32 }} />
         <ol className="mt-4 space-y-3 flex-1">
@@ -336,19 +621,19 @@ function Leaderboard({ cafes }: { cafes: Cafe[] }) {
     <div className="px-6 pt-10 pb-6">
       <div className="smallcaps text-sepia" style={{ fontSize: 10, letterSpacing: "0.2em" }}>The Roster</div>
       <h2 className="font-display text-ink mt-2" style={{ fontSize: 24, fontWeight: 500, lineHeight: 1.2 }}>Cafés in the league</h2>
-      <div className="font-body italic text-sepia mt-1" style={{ fontSize: 13 }}>South Kolkata · alphabetical</div>
+      <div className="font-body italic text-sepia mt-1" style={{ fontSize: 13 }}>Kolkata · alphabetical</div>
       <div className="hairline mt-4" style={{ width: 32 }} />
       <ul className="mt-5">
         {sorted.map((c, i) => (
           <li key={c.id}>
             <div className="flex items-center gap-4 py-4">
-              <div className="font-display text-ink" style={{ fontSize: 18, width: 30, textAlign: "center" }}>{ROMAN[i] ?? i + 1}</div>
+              <div className="font-display text-ink shrink-0" style={{ fontSize: 16, width: 30, textAlign: "center" }}>{i + 1}</div>
               <CafeImage cafe={c} size={44} />
               <div className="flex-1 min-w-0">
-                <div className="font-display text-ink" style={{ fontSize: 15, fontWeight: 500 }}>{c.name}</div>
-                <div className="font-body italic text-sepia" style={{ fontSize: 11 }}>{c.neighborhood}</div>
+                <div className="font-display text-ink truncate" style={{ fontSize: 15, fontWeight: 500 }}>{c.name}</div>
+                <div className="font-body italic text-sepia truncate" style={{ fontSize: 11 }}>{c.neighborhood}</div>
               </div>
-              <div className="smallcaps text-sepia" style={{ fontSize: 10, letterSpacing: "0.15em" }}>{c.total_wins ?? 0} wins</div>
+              <div className="smallcaps text-sepia shrink-0" style={{ fontSize: 10, letterSpacing: "0.15em" }}>{c.total_wins ?? 0} wins</div>
             </div>
             {i < sorted.length - 1 && <div className="hairline" />}
           </li>
@@ -378,6 +663,8 @@ function BottomNav({ tab, onChange }: { tab: "battle" | "leaderboard"; onChange:
 function RankTopV({ picks, onDone }: { picks: Cafe[]; onDone: (order: string[]) => void }) {
   const [order, setOrder] = useState<string[]>([]);
   const [pulseId, setPulseId] = useState<string | null>(null);
+  const total = picks.length;
+  const totalRoman = ROMAN[total - 1] ?? String(total);
 
   const handleTap = (id: string) => {
     const idx = order.indexOf(id);
@@ -385,13 +672,13 @@ function RankTopV({ picks, onDone }: { picks: Cafe[]; onDone: (order: string[]) 
     if (idx >= 0) {
       next = order.filter((x) => x !== id);
     } else {
-      if (order.length >= 5) return;
+      if (order.length >= total) return;
       next = [...order, id];
       setPulseId(id);
       setTimeout(() => setPulseId(null), 150);
     }
     setOrder(next);
-    if (next.length === 5) setTimeout(() => onDone(next), 600);
+    if (next.length === total) setTimeout(() => onDone(next), 600);
   };
 
   return (
@@ -400,7 +687,7 @@ function RankTopV({ picks, onDone }: { picks: Cafe[]; onDone: (order: string[]) 
       <h2 className="font-display italic text-forest" style={{ fontSize: 26, fontWeight: 500, lineHeight: 1.15 }}>Now crown them.</h2>
       <p className="font-body italic text-ink mt-2" style={{ fontSize: 13 }}>Tap in order of preference. Favorite first.</p>
       <div className="hairline mt-4" style={{ width: 32 }} />
-      <div className="smallcaps text-sepia mt-4" style={{ fontSize: 10, letterSpacing: "1.5px" }}>{order.length} of 5 ranked</div>
+      <div className="smallcaps text-sepia mt-4" style={{ fontSize: 10, letterSpacing: "1.5px" }}>{order.length} of {total} ranked · rank I to {totalRoman}</div>
 
       <ul className="mt-6 space-y-2">
         {picks.map((cafe) => {
@@ -410,10 +697,11 @@ function RankTopV({ picks, onDone }: { picks: Cafe[]; onDone: (order: string[]) 
             <li key={cafe.id}>
               <button
                 onClick={() => handleTap(cafe.id)}
-                className="w-full text-left rounded-[6px] flex items-start gap-3"
+                className="w-full text-left rounded-[6px] flex items-start gap-3 relative"
                 style={{
                   background: "#FBF6E9",
                   padding: 12,
+                  paddingBottom: 32,
                   border: ranked ? "1.5px solid #1F4D3C" : "0.5px solid rgba(139,111,71,0.4)",
                   boxShadow: ranked ? "2px 2px 0 #1F4D3C" : "none",
                   outline: "none",
@@ -457,6 +745,7 @@ function RankTopV({ picks, onDone }: { picks: Cafe[]; onDone: (order: string[]) 
                     </div>
                   )}
                 </div>
+                <RatingTag cafe={cafe} />
               </button>
             </li>
           );
