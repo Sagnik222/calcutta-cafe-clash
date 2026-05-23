@@ -1237,7 +1237,7 @@ function Lobby({
       </button>
 
       <div className="text-center">
-        <h1 className="font-display italic text-forest" style={{ fontSize: 28, fontWeight: 500 }}>SwipeLeague</h1>
+        <BrandTitle size={28} />
         <div className="text-walnut mt-1" style={{ fontSize: 9, letterSpacing: "0.25em", color: "#6B4423", fontFamily: "Georgia, serif", textTransform: "uppercase" }}>Est · MMXXVI</div>
       </div>
 
