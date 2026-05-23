@@ -966,3 +966,381 @@ function RankTopV({ picks, onDone }: { picks: Cafe[]; onDone: (order: string[]) 
     </div>
   );
 }
+
+/* ============================ MULTIPLAYER UI ============================ */
+
+function BackLink({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className="font-body italic"
+      style={{ position: "absolute", top: 18, left: 18, color: "#8B6F47", fontSize: 13, background: "transparent" }}
+    >
+      ← back
+    </button>
+  );
+}
+
+function PrimaryBtn({ children, onClick, disabled }: { children: React.ReactNode; onClick: () => void; disabled?: boolean }) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className="smallcaps"
+      style={{
+        background: "#1F4D3C", color: "#FBF6E9",
+        padding: "13px 0", borderRadius: 4,
+        fontSize: 12, letterSpacing: "0.22em",
+        width: "100%",
+        opacity: disabled ? 0.45 : 1,
+        cursor: disabled ? "not-allowed" : "pointer",
+        transition: "opacity 200ms",
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+function NameStep({
+  title, subtitle, name, setName, ctaLabel, onBack, onContinue,
+}: {
+  title: string; subtitle: string; name: string; setName: (s: string) => void;
+  ctaLabel: string; onBack: () => void; onContinue: () => void;
+}) {
+  const valid = name.trim().length >= 2;
+  return (
+    <div className="min-h-screen px-8 pt-20 relative">
+      <BackLink onClick={onBack} />
+      <div className="text-center">
+        <h2 className="font-display italic text-forest" style={{ fontSize: 24, fontWeight: 500 }}>{title}</h2>
+        <p className="font-body italic text-sepia mt-2" style={{ fontSize: 12 }}>{subtitle}</p>
+      </div>
+      <div className="mt-8" style={{ maxWidth: 320, margin: "32px auto 0" }}>
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value.slice(0, 20))}
+          placeholder="your name"
+          maxLength={20}
+          className="w-full"
+          style={{
+            background: "#FBF6E9",
+            border: "1px solid #8B6F47",
+            borderRadius: 2,
+            padding: "10px 12px",
+            fontFamily: "Georgia, serif",
+            fontSize: 16,
+            color: "#1A1A1A",
+            outline: "none",
+          }}
+        />
+        <div className="mt-6">
+          <PrimaryBtn onClick={onContinue} disabled={!valid}>{ctaLabel}</PrimaryBtn>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function HostRegionStep({
+  region, onRegion, regionCounts, totalCount, onBack, onCreate,
+}: {
+  region: Region;
+  onRegion: (r: Region) => void;
+  regionCounts: Record<string, number>;
+  totalCount: number;
+  onBack: () => void;
+  onCreate: () => Promise<{ ok: true } | { ok: false; error: string }>;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const canCreate = roundsForCount(region === "All Kolkata" ? totalCount : regionCounts[region] ?? 0) > 0;
+
+  const handleCreate = async () => {
+    if (busy) return;
+    setBusy(true); setErr(null);
+    const res = await onCreate();
+    setBusy(false);
+    if (!res.ok) setErr(res.error);
+  };
+
+  return (
+    <div className="min-h-screen px-8 pt-20 pb-10 relative">
+      <BackLink onClick={onBack} />
+      <h2 className="font-display italic text-forest text-center" style={{ fontSize: 24, fontWeight: 500 }}>Where are you playing?</h2>
+      <div
+        className="mt-6 w-full"
+        style={{ overflowX: "auto", overflowY: "hidden", WebkitOverflowScrolling: "touch", scrollbarWidth: "none" }}
+      >
+        <div style={{ display: "inline-flex", gap: 8, padding: "4px 8px", whiteSpace: "nowrap" }}>
+          {REGIONS.map((r) => {
+            const count = r === "All Kolkata" ? totalCount : regionCounts[r] ?? 0;
+            const disabled = roundsForCount(count) === 0;
+            const selected = region === r;
+            return (
+              <button
+                key={r}
+                onClick={() => !disabled && onRegion(r)}
+                className="smallcaps shrink-0"
+                style={{
+                  background: selected ? "#1F4D3C" : "#FBF6E9",
+                  color: selected ? "#FBF6E9" : "#1A1A1A",
+                  border: selected ? "none" : "1px solid #8B6F47",
+                  borderRadius: 2, padding: "8px 14px", fontSize: 12,
+                  letterSpacing: "0.5px", fontFamily: "Georgia, serif",
+                  boxShadow: selected ? "2px 2px 0 #6B4423" : "none",
+                  opacity: disabled ? 0.5 : 1,
+                  cursor: disabled ? "not-allowed" : "pointer",
+                }}
+              >
+                {r}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      {err && <div className="font-body italic text-center mt-4" style={{ fontSize: 11, color: "#6B4423" }}>{err}</div>}
+      <div className="mt-8" style={{ maxWidth: 320, margin: "32px auto 0" }}>
+        <PrimaryBtn onClick={handleCreate} disabled={!canCreate || busy}>
+          {busy ? "Creating…" : "Create Session"}
+        </PrimaryBtn>
+      </div>
+    </div>
+  );
+}
+
+function JoinStep({
+  onBack, onJoin,
+}: {
+  onBack: () => void;
+  onJoin: (code: string, name: string) => Promise<string | null>;
+}) {
+  const [name, setName] = useState("");
+  const [code, setCode] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+  const valid = name.trim().length >= 2 && code.length === 6;
+
+  const handleJoin = async () => {
+    if (!valid || busy) return;
+    setBusy(true); setToast(null);
+    const err = await onJoin(code, name);
+    setBusy(false);
+    if (err) {
+      setToast(err);
+      window.setTimeout(() => setToast(null), 3000);
+    }
+  };
+
+  return (
+    <div className="min-h-screen px-8 pt-20 pb-10 relative">
+      <BackLink onClick={onBack} />
+      <h2 className="font-display italic text-forest text-center" style={{ fontSize: 24, fontWeight: 500 }}>Join a session</h2>
+      <div style={{ maxWidth: 320, margin: "32px auto 0" }}>
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value.slice(0, 20))}
+          placeholder="your name"
+          maxLength={20}
+          className="w-full"
+          style={{
+            background: "#FBF6E9", border: "1px solid #8B6F47",
+            borderRadius: 2, padding: "10px 12px",
+            fontFamily: "Georgia, serif", fontSize: 16, color: "#1A1A1A", outline: "none",
+          }}
+        />
+        <input
+          value={code}
+          onChange={(e) => setCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6))}
+          placeholder="6-character code"
+          maxLength={6}
+          className="w-full mt-4 text-center"
+          style={{
+            background: "#FBF6E9", border: "1px solid #8B6F47",
+            borderRadius: 2, padding: "12px 12px",
+            fontFamily: "'Courier New', Courier, monospace",
+            fontSize: 18, letterSpacing: "4px",
+            color: "#1A1A1A", outline: "none",
+          }}
+        />
+        <div className="mt-6">
+          <PrimaryBtn onClick={handleJoin} disabled={!valid || busy}>
+            {busy ? "Joining…" : "Join"}
+          </PrimaryBtn>
+        </div>
+        {toast && (
+          <div
+            className="font-body italic mt-4 text-center"
+            style={{ fontSize: 12, color: "#6B4423", background: "#FBF6E9", padding: "10px 14px", borderRadius: 2, border: "1px solid #8B6F47" }}
+          >
+            {toast}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Lobby({
+  session, me, players, onRefresh, onLeave, onStart,
+}: {
+  session: MPSession;
+  me: MPPlayer;
+  players: MPPlayer[];
+  onRefresh: () => Promise<void>;
+  onLeave: () => void;
+  onStart: () => void;
+}) {
+  const [refreshing, setRefreshing] = useState(false);
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await onRefresh();
+    setRefreshing(false);
+  };
+  const handleShare = async () => {
+    const text = `Join my SwipeLeague — code ${session.join_code} — open ${window.location.href}`;
+    const navAny = navigator as Navigator & { share?: (d: { text: string }) => Promise<void> };
+    if (navAny.share) {
+      try { await navAny.share({ text }); } catch { /* user dismissed */ }
+    } else {
+      try { await navigator.clipboard.writeText(text); } catch { /* ignore */ }
+    }
+  };
+
+  const max = session.max_players ?? 6;
+  const sorted = [...players].sort((a, b) => {
+    if (a.is_host !== b.is_host) return a.is_host ? -1 : 1;
+    return (a.joined_at ?? "").localeCompare(b.joined_at ?? "");
+  });
+  const canStart = me.is_host && players.length >= 2;
+
+  return (
+    <div className="min-h-screen px-6 pt-8 pb-24 relative">
+      <button
+        onClick={onLeave}
+        className="font-body italic"
+        style={{ position: "absolute", bottom: 16, left: 18, color: "#8B6F47", fontSize: 11, background: "transparent" }}
+      >
+        ← leave
+      </button>
+
+      <div className="text-center">
+        <h1 className="font-display italic text-forest" style={{ fontSize: 28, fontWeight: 500 }}>SwipeLeague</h1>
+        <div className="text-walnut mt-1" style={{ fontSize: 9, letterSpacing: "0.25em", color: "#6B4423", fontFamily: "Georgia, serif", textTransform: "uppercase" }}>Est · MMXXVI</div>
+      </div>
+
+      <div className="text-center" style={{ marginTop: 28 }}>
+        <div className="smallcaps" style={{ fontSize: 10, letterSpacing: "0.22em", color: "#8B6F47" }}>Join Code</div>
+        <div
+          className="font-display"
+          style={{
+            fontSize: 56, fontWeight: 700, color: "#1F4D3C",
+            letterSpacing: "8px", marginTop: 6,
+            textShadow: "3px 3px 0 #6B4423",
+            lineHeight: 1.1,
+          }}
+        >
+          {session.join_code}
+        </div>
+        <p className="font-body italic text-sepia mt-3" style={{ fontSize: 12 }}>share this with your group</p>
+        <div style={{ maxWidth: 240, margin: "14px auto 0" }}>
+          <button
+            onClick={handleShare}
+            className="font-display"
+            style={{ background: "#FBF6E9", color: "#1F4D3C", border: "1px solid #1F4D3C", borderRadius: 2, padding: "10px 20px", fontSize: 14, letterSpacing: "1px", textTransform: "uppercase", fontVariant: "small-caps", boxShadow: "2px 2px 0 #1F4D3C", width: "100%" }}
+          >
+            Share Invite
+          </button>
+        </div>
+      </div>
+
+      <div style={{ borderBottom: "1px dotted #6B4423", width: "60%", margin: "28px auto 0" }} />
+
+      <div className="text-center mt-6">
+        <div className="smallcaps" style={{ fontSize: 11, letterSpacing: "0.22em", color: "#8B6F47" }}>Players</div>
+        <ul className="mt-3 space-y-1">
+          {sorted.map((p) => (
+            <li key={p.id} className="smallcaps" style={{ fontSize: 14, letterSpacing: "0.1em", color: "#1A1A1A", fontFamily: "Georgia, serif" }}>
+              <span style={{ color: "#6B4423", marginRight: 8 }}>·</span>
+              {p.display_name}
+              {p.is_host && (
+                <span className="font-body italic" style={{ fontSize: 10, color: "#8B6F47", marginLeft: 6, letterSpacing: 0, textTransform: "none" }}>(host)</span>
+              )}
+            </li>
+          ))}
+        </ul>
+        <div className="font-body italic text-sepia mt-3" style={{ fontSize: 11 }}>{players.length} of {max} players</div>
+      </div>
+
+      <div style={{ maxWidth: 320, margin: "28px auto 0" }}>
+        {me.is_host ? (
+          <>
+            <PrimaryBtn onClick={onStart} disabled={!canStart}>Start Session</PrimaryBtn>
+            {!canStart && (
+              <p className="font-body italic text-center mt-2" style={{ fontSize: 10, color: "#8B6F47" }}>
+                waiting for at least one more player…
+              </p>
+            )}
+          </>
+        ) : (
+          <div className="font-display italic text-forest text-center" style={{ fontSize: 14 }}>
+            Waiting for host to start…
+          </div>
+        )}
+      </div>
+
+      <div className="text-center mt-6">
+        <button
+          onClick={handleRefresh}
+          className="smallcaps"
+          style={{
+            background: "#FBF6E9", color: "#1F4D3C",
+            border: "1px solid #1F4D3C", borderRadius: 2,
+            padding: "8px 18px", fontSize: 11, letterSpacing: "0.18em",
+            fontFamily: "Georgia, serif",
+            boxShadow: "2px 2px 0 #1F4D3C",
+            opacity: refreshing ? 0.6 : 1,
+          }}
+        >
+          ↻ {refreshing ? "refreshing" : "refresh"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function MPPlaceholder({
+  session, cafesById, onExit,
+}: {
+  session: MPSession;
+  cafesById: Record<string, Cafe>;
+  onExit: () => void;
+}) {
+  const pair = session.cafe_pairings?.[0];
+  const a = pair ? cafesById[pair[0]] : null;
+  const b = pair ? cafesById[pair[1]] : null;
+  return (
+    <div className="min-h-screen px-6 pt-12 pb-10 text-center">
+      <div className="smallcaps text-sepia" style={{ fontSize: 10, letterSpacing: "0.22em" }}>Round I</div>
+      <h2 className="font-display italic text-forest mt-3" style={{ fontSize: 24, fontWeight: 500 }}>battle UI coming in Prompt 2</h2>
+      <div className="hairline mt-6 mx-auto" style={{ width: 32 }} />
+      {a && b && (
+        <div className="mt-8 font-display text-ink" style={{ fontSize: 18, lineHeight: 1.6 }}>
+          <div>{a.name}</div>
+          <div className="font-body italic text-sepia my-2" style={{ fontSize: 13 }}>— vs —</div>
+          <div>{b.name}</div>
+        </div>
+      )}
+      <div className="font-body italic text-sepia mt-10" style={{ fontSize: 12 }}>code · {session.join_code}</div>
+      <div className="mt-8" style={{ maxWidth: 240, margin: "32px auto 0" }}>
+        <button
+          onClick={onExit}
+          className="smallcaps"
+          style={{ background: "transparent", color: "#8B6F47", padding: "12px 0", borderRadius: 4, fontSize: 11, letterSpacing: "0.22em", border: "0.5px solid #8B6F47", width: "100%" }}
+        >
+          Exit to Welcome
+        </button>
+      </div>
+    </div>
+  );
+}
