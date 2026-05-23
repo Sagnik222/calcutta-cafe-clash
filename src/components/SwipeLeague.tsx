@@ -365,7 +365,7 @@ export default function App() {
 function LoadingScreen() {
   return (
     <div className="min-h-screen flex flex-col items-center justify-center" style={{ background: "#F4ECD8" }}>
-      <BrandTitle size={28} />)
+      <BrandTitle size={28} />
       <p className="font-body italic text-sepia mt-3" style={{ fontSize: 12 }}>preparing the cafés...</p>
       <div className="text-sepia mt-4" style={{ fontSize: 14, letterSpacing: "0.4em" }}>· · ·</div>
     </div>
