@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { type Cafe, ROMAN, REGIONS, type Region, buildBattles, roundsForCount, numWord } from "@/lib/cafes";
 import { CafeImage } from "@/components/CafeImage";
 import { supabase } from "@/lib/supabase";
