@@ -1,4 +1,17 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Crown as CrownIcon } from "lucide-react";
+
+function BrandTitle({ size }: { size: number }) {
+  return (
+    <h1
+      className="font-display italic text-forest flex items-center justify-center"
+      style={{ fontSize: size, fontWeight: 500, lineHeight: 1.1, gap: size * 0.25 }}
+    >
+      <span>Crown</span>
+      <CrownIcon style={{ width: size * 0.85, height: size * 0.85, color: "#1F4D3C" }} strokeWidth={1.75} />
+    </h1>
+  );
+}
 import { type Cafe, ROMAN, REGIONS, type Region, buildBattles, roundsForCount, numWord } from "@/lib/cafes";
 import { CafeImage } from "@/components/CafeImage";
 import { supabase } from "@/lib/supabase";
@@ -352,7 +365,7 @@ export default function App() {
 function LoadingScreen() {
   return (
     <div className="min-h-screen flex flex-col items-center justify-center" style={{ background: "#F4ECD8" }}>
-      <h1 className="font-display italic text-forest" style={{ fontSize: 28, fontWeight: 500 }}>SwipeLeague</h1>
+      <BrandTitle size={28} />
       <p className="font-body italic text-sepia mt-3" style={{ fontSize: 12 }}>preparing the cafés...</p>
       <div className="text-sepia mt-4" style={{ fontSize: 14, letterSpacing: "0.4em" }}>· · ·</div>
     </div>
@@ -423,7 +436,7 @@ function Welcome({
     <div className="min-h-screen flex flex-col px-8 pt-6 relative">
       <div className="absolute top-5 right-6 smallcaps text-sepia" style={{ fontSize: 9 }}>Est. 2026</div>
       <div className="flex-1 flex flex-col items-center justify-center text-center -mt-8">
-        <h1 className="font-display italic text-forest" style={{ fontSize: 38, fontWeight: 500, lineHeight: 1.1 }}>SwipeLeague</h1>
+        <BrandTitle size={38} />
         <div className="hairline mt-5" style={{ width: 32 }} />
         <div className="smallcaps text-sepia mt-5" style={{ fontSize: 10, letterSpacing: "0.2em" }}>Kolkata · Ranked by You</div>
         <button
@@ -434,7 +447,6 @@ function Welcome({
         >
           Begin
         </button>
-        <p className="font-body italic text-sepia mt-4" style={{ fontSize: 12 }}>{preview}</p>
 
         <div className="font-body italic text-sepia mt-6" style={{ fontSize: 10 }}>where are we playing?</div>
         <div
@@ -719,7 +731,7 @@ function RatingPopup({ cafe, onClose }: { cafe: Cafe; onClose: () => void }) {
         )}
 
         <div className="font-body italic text-sepia text-center mt-6" style={{ fontSize: 9 }}>
-          Reviews from Google. SwipeLeague does not verify reviews.
+          Reviews from Google. Crown does not verify reviews.
         </div>
       </div>
     </div>
@@ -802,7 +814,7 @@ function SharePreview({ picks, region, onBack }: { picks: Cafe[]; region: Region
       <div className="mx-auto" style={{ aspectRatio: "9 / 16", background: "#F4ECD8", padding: "28px 22px", borderRadius: 6, border: "0.5px solid rgba(139,111,71,0.4)", display: "flex", flexDirection: "column" }}>
         <div className="smallcaps text-sepia" style={{ fontSize: 9, letterSpacing: "0.25em" }}>Est. 2026</div>
         <h2 className="font-display italic text-ink mt-3" style={{ fontSize: 24, fontWeight: 500, lineHeight: 1.1 }}>My {rankTitle(region, picks.length).replace(/^Your /, "")}</h2>
-        <div className="smallcaps text-sepia mt-2" style={{ fontSize: 9, letterSpacing: "0.22em" }}>A SwipeLeague ranking</div>
+        <div className="smallcaps text-sepia mt-2" style={{ fontSize: 9, letterSpacing: "0.22em" }}>A Crown ranking</div>
         <div className="hairline mt-3" style={{ width: 32 }} />
         <ol className="mt-4 space-y-3 flex-1">
           {picks.map((c, i) => (
@@ -817,7 +829,7 @@ function SharePreview({ picks, region, onBack }: { picks: Cafe[]; region: Region
           ))}
         </ol>
         <div className="hairline mt-4" style={{ width: "100%" }} />
-        <div className="smallcaps text-sepia text-center mt-3" style={{ fontSize: 9, letterSpacing: "0.22em" }}>SwipeLeague · Kolkata, ranked by you</div>
+        <div className="smallcaps text-sepia text-center mt-3" style={{ fontSize: 9, letterSpacing: "0.22em" }}>Crown · Kolkata, ranked by you</div>
       </div>
       <button className="smallcaps w-full mt-6" onClick={() => alert("In a real build this would download the card as an image.")} style={{ background: "#1F4D3C", color: "#FBF6E9", padding: "13px 0", borderRadius: 4, fontSize: 11, letterSpacing: "0.22em" }}>Download Image</button>
       <button onClick={onBack} className="font-body italic text-sepia w-full mt-3 text-center" style={{ fontSize: 13, background: "transparent" }}>Back</button>
@@ -1198,7 +1210,7 @@ function Lobby({
     setRefreshing(false);
   };
   const handleShare = async () => {
-    const text = `Join my SwipeLeague — code ${session.join_code} — open ${window.location.href}`;
+    const text = `Join my Crown — code ${session.join_code} — open ${window.location.href}`;
     const navAny = navigator as Navigator & { share?: (d: { text: string }) => Promise<void> };
     if (navAny.share) {
       try { await navAny.share({ text }); } catch { /* user dismissed */ }
@@ -1225,7 +1237,7 @@ function Lobby({
       </button>
 
       <div className="text-center">
-        <h1 className="font-display italic text-forest" style={{ fontSize: 28, fontWeight: 500 }}>SwipeLeague</h1>
+        <BrandTitle size={28} />
         <div className="text-walnut mt-1" style={{ fontSize: 9, letterSpacing: "0.25em", color: "#6B4423", fontFamily: "Georgia, serif", textTransform: "uppercase" }}>Est · MMXXVI</div>
       </div>
 
