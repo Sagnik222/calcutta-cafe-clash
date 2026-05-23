@@ -436,7 +436,7 @@ function Welcome({
     <div className="min-h-screen flex flex-col px-8 pt-6 relative">
       <div className="absolute top-5 right-6 smallcaps text-sepia" style={{ fontSize: 9 }}>Est. 2026</div>
       <div className="flex-1 flex flex-col items-center justify-center text-center -mt-8">
-        <h1 className="font-display italic text-forest" style={{ fontSize: 38, fontWeight: 500, lineHeight: 1.1 }}>SwipeLeague</h1>
+        <BrandTitle size={38} />
         <div className="hairline mt-5" style={{ width: 32 }} />
         <div className="smallcaps text-sepia mt-5" style={{ fontSize: 10, letterSpacing: "0.2em" }}>Kolkata · Ranked by You</div>
         <button
@@ -447,7 +447,6 @@ function Welcome({
         >
           Begin
         </button>
-        <p className="font-body italic text-sepia mt-4" style={{ fontSize: 12 }}>{preview}</p>
 
         <div className="font-body italic text-sepia mt-6" style={{ fontSize: 10 }}>where are we playing?</div>
         <div
