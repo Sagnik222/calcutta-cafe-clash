@@ -981,7 +981,7 @@ function BackLink({ onClick }: { onClick: () => void }) {
   );
 }
 
-function PrimaryBtn({ children, onClick, disabled }: { children: React.ReactNode; onClick: () => void; disabled?: boolean }) {
+function PrimaryBtn({ children, onClick, disabled }: { children: ReactNode; onClick: () => void; disabled?: boolean }) {
   return (
     <button
       onClick={onClick}
