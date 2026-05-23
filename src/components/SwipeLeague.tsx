@@ -98,6 +98,13 @@ export default function App() {
   const [picks, setPicks] = useState<string[]>([]);
   const [ranked, setRanked] = useState<string[]>([]);
 
+  // multiplayer state
+  const [mpName, setMpName] = useState("");
+  const [mpRegion, setMpRegion] = useState<Region>("All Kolkata");
+  const [mpSession, setMpSession] = useState<MPSession | null>(null);
+  const [mpPlayer, setMpPlayer] = useState<MPPlayer | null>(null);
+  const [mpPlayers, setMpPlayers] = useState<MPPlayer[]>([]);
+
   const goBattle = () => {
     if (!cafes) return;
     const pool = region === "All Kolkata" ? cafes : cafes.filter((c) => c.region === region);
@@ -128,6 +135,16 @@ export default function App() {
         setRound(round + 1);
       }
     }, 600);
+  };
+
+  const refreshLobby = async (sessionId: string): Promise<MPSession | null> => {
+    const [{ data: sess }, { data: pls }] = await Promise.all([
+      supabase.from("sessions").select("*").eq("id", sessionId).maybeSingle(),
+      supabase.from("players").select("*").eq("session_id", sessionId).order("joined_at", { ascending: true }),
+    ]);
+    if (sess) setMpSession(sess as MPSession);
+    if (pls) setMpPlayers(pls as MPPlayer[]);
+    return (sess as MPSession) ?? null;
   };
 
   if (loadError) return <ErrorScreen onRetry={() => setReloadKey((k) => k + 1)} />;
