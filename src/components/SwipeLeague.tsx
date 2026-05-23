@@ -3,7 +3,44 @@ import { type Cafe, ROMAN, REGIONS, type Region, buildBattles, roundsForCount, n
 import { CafeImage } from "@/components/CafeImage";
 import { supabase } from "@/lib/supabase";
 
-type Screen = "welcome" | "battle" | "rank" | "result" | "share" | "leaderboard";
+type Screen =
+  | "welcome"
+  | "battle"
+  | "rank"
+  | "result"
+  | "share"
+  | "leaderboard"
+  | "mp-host-name"
+  | "mp-host-region"
+  | "mp-join"
+  | "mp-lobby"
+  | "mp-placeholder";
+
+type MPSession = {
+  id: string;
+  join_code: string;
+  region: string | null;
+  status: string;
+  host_player_id: string | null;
+  max_players: number | null;
+  current_round: number | null;
+  cafe_pairings?: [string, string][] | null;
+};
+type MPPlayer = {
+  id: string;
+  session_id: string;
+  display_name: string;
+  is_host: boolean;
+  joined_at: string | null;
+  status: string | null;
+};
+
+function genCode(): string {
+  const A = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let s = "";
+  for (let i = 0; i < 6; i++) s += A[Math.floor(Math.random() * A.length)];
+  return s;
+}
 
 export default function App() {
   const [cafes, setCafes] = useState<Cafe[] | null>(null);
