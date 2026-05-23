@@ -387,13 +387,15 @@ function sessionPreview(region: Region, regionCounts: Record<string, number>, to
 }
 
 function Welcome({
-  region, onRegion, regionCounts, totalCount, onBegin,
+  region, onRegion, regionCounts, totalCount, onBegin, onHost, onJoin,
 }: {
   region: Region;
   onRegion: (r: Region) => void;
   regionCounts: Record<string, number>;
   totalCount: number;
   onBegin: () => void;
+  onHost: () => void;
+  onJoin: () => void;
 }) {
   const [toast, setToast] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
