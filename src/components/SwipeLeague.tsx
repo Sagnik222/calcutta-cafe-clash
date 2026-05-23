@@ -250,6 +250,55 @@ export default function App() {
           regionCounts={regionCounts}
           totalCount={cafes.length}
           onBegin={goBattle}
+          onHost={() => { setMpName(""); setMpRegion("All Kolkata"); setScreen("mp-host-name"); }}
+          onJoin={() => { setMpName(""); setScreen("mp-join"); }}
+        />
+      )}
+      {screen === "mp-host-name" && (
+        <NameStep
+          title="Your name?"
+          subtitle="shown to your group"
+          name={mpName}
+          setName={setMpName}
+          ctaLabel="Continue"
+          onBack={() => setScreen("welcome")}
+          onContinue={() => setScreen("mp-host-region")}
+        />
+      )}
+      {screen === "mp-host-region" && (
+        <HostRegionStep
+          region={mpRegion}
+          onRegion={setMpRegion}
+          regionCounts={regionCounts}
+          totalCount={cafes.length}
+          onBack={() => setScreen("mp-host-name")}
+          onCreate={createHostSession}
+        />
+      )}
+      {screen === "mp-join" && (
+        <JoinStep
+          onBack={() => setScreen("welcome")}
+          onJoin={joinSession}
+        />
+      )}
+      {screen === "mp-lobby" && mpSession && mpPlayer && (
+        <Lobby
+          session={mpSession}
+          me={mpPlayer}
+          players={mpPlayers}
+          onRefresh={async () => {
+            const sess = await refreshLobby(mpSession.id);
+            if (sess && sess.status === "active") setScreen("mp-placeholder");
+          }}
+          onLeave={leaveLobby}
+          onStart={startHostSession}
+        />
+      )}
+      {screen === "mp-placeholder" && mpSession && (
+        <MPPlaceholder
+          session={mpSession}
+          cafesById={cafesById}
+          onExit={() => { setMpSession(null); setMpPlayer(null); setMpPlayers([]); setScreen("welcome"); }}
         />
       )}
       {screen === "battle" && tab === "battle" && battles[round] && (
