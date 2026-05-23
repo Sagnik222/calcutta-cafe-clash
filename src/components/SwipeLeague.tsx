@@ -1,4 +1,17 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Crown as CrownIcon } from "lucide-react";
+
+function BrandTitle({ size }: { size: number }) {
+  return (
+    <h1
+      className="font-display italic text-forest flex items-center justify-center"
+      style={{ fontSize: size, fontWeight: 500, lineHeight: 1.1, gap: size * 0.25 }}
+    >
+      <span>Crown</span>
+      <CrownIcon style={{ width: size * 0.85, height: size * 0.85, color: "#1F4D3C" }} strokeWidth={1.75} />
+    </h1>
+  );
+}
 import { type Cafe, ROMAN, REGIONS, type Region, buildBattles, roundsForCount, numWord } from "@/lib/cafes";
 import { CafeImage } from "@/components/CafeImage";
 import { supabase } from "@/lib/supabase";
