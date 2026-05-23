@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import Crown from "@/components/Crown";
+import Crown from "@/components/SwipeLeague";
 
 export const Route = createFileRoute("/")({
   head: () => ({
