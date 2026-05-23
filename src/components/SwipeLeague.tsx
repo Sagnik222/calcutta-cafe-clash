@@ -1,9 +1,46 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { type Cafe, ROMAN, REGIONS, type Region, buildBattles, roundsForCount, numWord } from "@/lib/cafes";
 import { CafeImage } from "@/components/CafeImage";
 import { supabase } from "@/lib/supabase";
 
-type Screen = "welcome" | "battle" | "rank" | "result" | "share" | "leaderboard";
+type Screen =
+  | "welcome"
+  | "battle"
+  | "rank"
+  | "result"
+  | "share"
+  | "leaderboard"
+  | "mp-host-name"
+  | "mp-host-region"
+  | "mp-join"
+  | "mp-lobby"
+  | "mp-placeholder";
+
+type MPSession = {
+  id: string;
+  join_code: string;
+  region: string | null;
+  status: string;
+  host_player_id: string | null;
+  max_players: number | null;
+  current_round: number | null;
+  cafe_pairings?: [string, string][] | null;
+};
+type MPPlayer = {
+  id: string;
+  session_id: string;
+  display_name: string;
+  is_host: boolean;
+  joined_at: string | null;
+  status: string | null;
+};
+
+function genCode(): string {
+  const A = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let s = "";
+  for (let i = 0; i < 6; i++) s += A[Math.floor(Math.random() * A.length)];
+  return s;
+}
 
 export default function App() {
   const [cafes, setCafes] = useState<Cafe[] | null>(null);
@@ -61,6 +98,13 @@ export default function App() {
   const [picks, setPicks] = useState<string[]>([]);
   const [ranked, setRanked] = useState<string[]>([]);
 
+  // multiplayer state
+  const [mpName, setMpName] = useState("");
+  const [mpRegion, setMpRegion] = useState<Region>("All Kolkata");
+  const [mpSession, setMpSession] = useState<MPSession | null>(null);
+  const [mpPlayer, setMpPlayer] = useState<MPPlayer | null>(null);
+  const [mpPlayers, setMpPlayers] = useState<MPPlayer[]>([]);
+
   const goBattle = () => {
     if (!cafes) return;
     const pool = region === "All Kolkata" ? cafes : cafes.filter((c) => c.region === region);
@@ -93,6 +137,104 @@ export default function App() {
     }, 600);
   };
 
+  const refreshLobby = async (sessionId: string): Promise<MPSession | null> => {
+    const [{ data: sess }, { data: pls }] = await Promise.all([
+      supabase.from("sessions").select("*").eq("id", sessionId).maybeSingle(),
+      supabase.from("players").select("*").eq("session_id", sessionId).order("joined_at", { ascending: true }),
+    ]);
+    if (sess) setMpSession(sess as MPSession);
+    if (pls) setMpPlayers(pls as MPPlayer[]);
+    return (sess as MPSession) ?? null;
+  };
+
+  const createHostSession = async (): Promise<{ ok: true } | { ok: false; error: string }> => {
+    // try up to 5 times for unique code
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const code = genCode();
+      const { data: existing } = await supabase.from("sessions").select("id").eq("join_code", code).maybeSingle();
+      if (existing) continue;
+      const { data: sess, error: sErr } = await supabase
+        .from("sessions")
+        .insert({ mode: "group", join_code: code, region: mpRegion, status: "lobby", max_players: 6, current_round: 0 })
+        .select("*")
+        .single();
+      if (sErr || !sess) return { ok: false, error: sErr?.message ?? "Could not create session" };
+      const { data: player, error: pErr } = await supabase
+        .from("players")
+        .insert({ session_id: sess.id, display_name: mpName.trim(), is_host: true, status: "waiting" })
+        .select("*")
+        .single();
+      if (pErr || !player) return { ok: false, error: pErr?.message ?? "Could not create host" };
+      await supabase.from("sessions").update({ host_player_id: player.id }).eq("id", sess.id);
+      console.log(`Host created session: ${code}, region: ${mpRegion}`);
+      setMpSession({ ...(sess as MPSession), host_player_id: player.id });
+      setMpPlayer(player as MPPlayer);
+      setMpPlayers([player as MPPlayer]);
+      setScreen("mp-lobby");
+      return { ok: true };
+    }
+    return { ok: false, error: "Could not generate a unique code, please try again." };
+  };
+
+  const joinSession = async (code: string, name: string): Promise<string | null> => {
+    const upper = code.toUpperCase();
+    const { data: sess } = await supabase.from("sessions").select("*").eq("join_code", upper).maybeSingle();
+    if (!sess) return "Code not found. Check with your group.";
+    if (sess.status !== "lobby") return "Session already underway. Ask the host to start a new one.";
+    const { data: existingPlayers } = await supabase.from("players").select("id").eq("session_id", sess.id);
+    const max = sess.max_players ?? 6;
+    if ((existingPlayers?.length ?? 0) >= max) return `Session is full (${max} players max). Ask the host to start another one.`;
+    const { data: player, error: pErr } = await supabase
+      .from("players")
+      .insert({ session_id: sess.id, display_name: name.trim(), is_host: false, status: "waiting" })
+      .select("*")
+      .single();
+    if (pErr || !player) return pErr?.message ?? "Could not join session";
+    console.log(`Player joined session: ${upper}, total players: ${(existingPlayers?.length ?? 0) + 1}`);
+    setMpSession(sess as MPSession);
+    setMpPlayer(player as MPPlayer);
+    await refreshLobby(sess.id);
+    setScreen("mp-lobby");
+    return null;
+  };
+
+  const leaveLobby = async () => {
+    if (!mpPlayer || !mpSession) { setScreen("welcome"); return; }
+    const wasHost = mpPlayer.is_host;
+    await supabase.from("players").delete().eq("id", mpPlayer.id);
+    console.log(`Player ${mpPlayer.display_name} left session`);
+    if (wasHost) {
+      const { data: remaining } = await supabase
+        .from("players").select("*").eq("session_id", mpSession.id)
+        .order("joined_at", { ascending: true });
+      if (remaining && remaining.length > 0) {
+        const newHost = remaining[0];
+        await supabase.from("players").update({ is_host: true }).eq("id", newHost.id);
+        await supabase.from("sessions").update({ host_player_id: newHost.id }).eq("id", mpSession.id);
+      } else {
+        await supabase.from("sessions").delete().eq("id", mpSession.id);
+      }
+    }
+    setMpSession(null); setMpPlayer(null); setMpPlayers([]);
+    setScreen("welcome");
+  };
+
+  const startHostSession = async () => {
+    if (!cafes || !mpSession || !mpPlayer?.is_host) return;
+    const regionName = (mpSession.region ?? "All Kolkata") as Region;
+    const pool = regionName === "All Kolkata" ? cafes : cafes.filter((c) => c.region === regionName);
+    const rounds = roundsForCount(pool.length);
+    if (rounds === 0) return;
+    const pairs = buildBattles(pool, rounds);
+    await supabase
+      .from("sessions")
+      .update({ status: "active", current_round: 1, round_started_at: new Date().toISOString(), cafe_pairings: pairs })
+      .eq("id", mpSession.id);
+    console.log(`Host started session — round 1, ${mpPlayers.length} players, ${rounds} rounds total`);
+    setMpSession({ ...mpSession, status: "active", current_round: 1, cafe_pairings: pairs });
+    setScreen("mp-placeholder");
+  };
+
   if (loadError) return <ErrorScreen onRetry={() => setReloadKey((k) => k + 1)} />;
   if (!cafes) return <LoadingScreen />;
 
@@ -108,6 +250,55 @@ export default function App() {
           regionCounts={regionCounts}
           totalCount={cafes.length}
           onBegin={goBattle}
+          onHost={() => { setMpName(""); setMpRegion("All Kolkata"); setScreen("mp-host-name"); }}
+          onJoin={() => { setMpName(""); setScreen("mp-join"); }}
+        />
+      )}
+      {screen === "mp-host-name" && (
+        <NameStep
+          title="Your name?"
+          subtitle="shown to your group"
+          name={mpName}
+          setName={setMpName}
+          ctaLabel="Continue"
+          onBack={() => setScreen("welcome")}
+          onContinue={() => setScreen("mp-host-region")}
+        />
+      )}
+      {screen === "mp-host-region" && (
+        <HostRegionStep
+          region={mpRegion}
+          onRegion={setMpRegion}
+          regionCounts={regionCounts}
+          totalCount={cafes.length}
+          onBack={() => setScreen("mp-host-name")}
+          onCreate={createHostSession}
+        />
+      )}
+      {screen === "mp-join" && (
+        <JoinStep
+          onBack={() => setScreen("welcome")}
+          onJoin={joinSession}
+        />
+      )}
+      {screen === "mp-lobby" && mpSession && mpPlayer && (
+        <Lobby
+          session={mpSession}
+          me={mpPlayer}
+          players={mpPlayers}
+          onRefresh={async () => {
+            const sess = await refreshLobby(mpSession.id);
+            if (sess && sess.status === "active") setScreen("mp-placeholder");
+          }}
+          onLeave={leaveLobby}
+          onStart={startHostSession}
+        />
+      )}
+      {screen === "mp-placeholder" && mpSession && (
+        <MPPlaceholder
+          session={mpSession}
+          cafesById={cafesById}
+          onExit={() => { setMpSession(null); setMpPlayer(null); setMpPlayers([]); setScreen("welcome"); }}
         />
       )}
       {screen === "battle" && tab === "battle" && battles[round] && (
@@ -196,13 +387,15 @@ function sessionPreview(region: Region, regionCounts: Record<string, number>, to
 }
 
 function Welcome({
-  region, onRegion, regionCounts, totalCount, onBegin,
+  region, onRegion, regionCounts, totalCount, onBegin, onHost, onJoin,
 }: {
   region: Region;
   onRegion: (r: Region) => void;
   regionCounts: Record<string, number>;
   totalCount: number;
   onBegin: () => void;
+  onHost: () => void;
+  onJoin: () => void;
 }) {
   const [toast, setToast] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -289,6 +482,23 @@ function Welcome({
             {toast}
           </div>
         )}
+
+        <div className="flex flex-col items-center" style={{ gap: 12, marginTop: 20 }}>
+          <button
+            onClick={onHost}
+            className="font-display"
+            style={{ background: "#FBF6E9", color: "#1F4D3C", border: "1px solid #1F4D3C", borderRadius: 2, padding: "12px 24px", fontSize: 16, letterSpacing: "1px", textTransform: "uppercase", fontVariant: "small-caps", boxShadow: "2px 2px 0 #1F4D3C", width: 240 }}
+          >
+            Play with friends
+          </button>
+          <button
+            onClick={onJoin}
+            className="font-display"
+            style={{ background: "#FBF6E9", color: "#1F4D3C", border: "1px solid #1F4D3C", borderRadius: 2, padding: "12px 24px", fontSize: 16, letterSpacing: "1px", textTransform: "uppercase", fontVariant: "small-caps", boxShadow: "2px 2px 0 #1F4D3C", width: 240 }}
+          >
+            Join with code
+          </button>
+        </div>
       </div>
       <div className="text-center text-sepia pb-8" style={{ fontSize: 14, letterSpacing: "0.4em" }}>· · ·</div>
     </div>
@@ -753,6 +963,384 @@ function RankTopV({ picks, onDone }: { picks: Cafe[]; onDone: (order: string[]) 
       </ul>
 
       <p className="font-body italic text-center mt-8" style={{ fontSize: 12, color: "#8B6F47" }}>Tap a ranked café to undo.</p>
+    </div>
+  );
+}
+
+/* ============================ MULTIPLAYER UI ============================ */
+
+function BackLink({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className="font-body italic"
+      style={{ position: "absolute", top: 18, left: 18, color: "#8B6F47", fontSize: 13, background: "transparent" }}
+    >
+      ← back
+    </button>
+  );
+}
+
+function PrimaryBtn({ children, onClick, disabled }: { children: ReactNode; onClick: () => void; disabled?: boolean }) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className="smallcaps"
+      style={{
+        background: "#1F4D3C", color: "#FBF6E9",
+        padding: "13px 0", borderRadius: 4,
+        fontSize: 12, letterSpacing: "0.22em",
+        width: "100%",
+        opacity: disabled ? 0.45 : 1,
+        cursor: disabled ? "not-allowed" : "pointer",
+        transition: "opacity 200ms",
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+function NameStep({
+  title, subtitle, name, setName, ctaLabel, onBack, onContinue,
+}: {
+  title: string; subtitle: string; name: string; setName: (s: string) => void;
+  ctaLabel: string; onBack: () => void; onContinue: () => void;
+}) {
+  const valid = name.trim().length >= 2;
+  return (
+    <div className="min-h-screen px-8 pt-20 relative">
+      <BackLink onClick={onBack} />
+      <div className="text-center">
+        <h2 className="font-display italic text-forest" style={{ fontSize: 24, fontWeight: 500 }}>{title}</h2>
+        <p className="font-body italic text-sepia mt-2" style={{ fontSize: 12 }}>{subtitle}</p>
+      </div>
+      <div className="mt-8" style={{ maxWidth: 320, margin: "32px auto 0" }}>
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value.slice(0, 20))}
+          placeholder="your name"
+          maxLength={20}
+          className="w-full"
+          style={{
+            background: "#FBF6E9",
+            border: "1px solid #8B6F47",
+            borderRadius: 2,
+            padding: "10px 12px",
+            fontFamily: "Georgia, serif",
+            fontSize: 16,
+            color: "#1A1A1A",
+            outline: "none",
+          }}
+        />
+        <div className="mt-6">
+          <PrimaryBtn onClick={onContinue} disabled={!valid}>{ctaLabel}</PrimaryBtn>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function HostRegionStep({
+  region, onRegion, regionCounts, totalCount, onBack, onCreate,
+}: {
+  region: Region;
+  onRegion: (r: Region) => void;
+  regionCounts: Record<string, number>;
+  totalCount: number;
+  onBack: () => void;
+  onCreate: () => Promise<{ ok: true } | { ok: false; error: string }>;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const canCreate = roundsForCount(region === "All Kolkata" ? totalCount : regionCounts[region] ?? 0) > 0;
+
+  const handleCreate = async () => {
+    if (busy) return;
+    setBusy(true); setErr(null);
+    const res = await onCreate();
+    setBusy(false);
+    if (!res.ok) setErr(res.error);
+  };
+
+  return (
+    <div className="min-h-screen px-8 pt-20 pb-10 relative">
+      <BackLink onClick={onBack} />
+      <h2 className="font-display italic text-forest text-center" style={{ fontSize: 24, fontWeight: 500 }}>Where are you playing?</h2>
+      <div
+        className="mt-6 w-full"
+        style={{ overflowX: "auto", overflowY: "hidden", WebkitOverflowScrolling: "touch", scrollbarWidth: "none" }}
+      >
+        <div style={{ display: "inline-flex", gap: 8, padding: "4px 8px", whiteSpace: "nowrap" }}>
+          {REGIONS.map((r) => {
+            const count = r === "All Kolkata" ? totalCount : regionCounts[r] ?? 0;
+            const disabled = roundsForCount(count) === 0;
+            const selected = region === r;
+            return (
+              <button
+                key={r}
+                onClick={() => !disabled && onRegion(r)}
+                className="smallcaps shrink-0"
+                style={{
+                  background: selected ? "#1F4D3C" : "#FBF6E9",
+                  color: selected ? "#FBF6E9" : "#1A1A1A",
+                  border: selected ? "none" : "1px solid #8B6F47",
+                  borderRadius: 2, padding: "8px 14px", fontSize: 12,
+                  letterSpacing: "0.5px", fontFamily: "Georgia, serif",
+                  boxShadow: selected ? "2px 2px 0 #6B4423" : "none",
+                  opacity: disabled ? 0.5 : 1,
+                  cursor: disabled ? "not-allowed" : "pointer",
+                }}
+              >
+                {r}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      {err && <div className="font-body italic text-center mt-4" style={{ fontSize: 11, color: "#6B4423" }}>{err}</div>}
+      <div className="mt-8" style={{ maxWidth: 320, margin: "32px auto 0" }}>
+        <PrimaryBtn onClick={handleCreate} disabled={!canCreate || busy}>
+          {busy ? "Creating…" : "Create Session"}
+        </PrimaryBtn>
+      </div>
+    </div>
+  );
+}
+
+function JoinStep({
+  onBack, onJoin,
+}: {
+  onBack: () => void;
+  onJoin: (code: string, name: string) => Promise<string | null>;
+}) {
+  const [name, setName] = useState("");
+  const [code, setCode] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+  const valid = name.trim().length >= 2 && code.length === 6;
+
+  const handleJoin = async () => {
+    if (!valid || busy) return;
+    setBusy(true); setToast(null);
+    const err = await onJoin(code, name);
+    setBusy(false);
+    if (err) {
+      setToast(err);
+      window.setTimeout(() => setToast(null), 3000);
+    }
+  };
+
+  return (
+    <div className="min-h-screen px-8 pt-20 pb-10 relative">
+      <BackLink onClick={onBack} />
+      <h2 className="font-display italic text-forest text-center" style={{ fontSize: 24, fontWeight: 500 }}>Join a session</h2>
+      <div style={{ maxWidth: 320, margin: "32px auto 0" }}>
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value.slice(0, 20))}
+          placeholder="your name"
+          maxLength={20}
+          className="w-full"
+          style={{
+            background: "#FBF6E9", border: "1px solid #8B6F47",
+            borderRadius: 2, padding: "10px 12px",
+            fontFamily: "Georgia, serif", fontSize: 16, color: "#1A1A1A", outline: "none",
+          }}
+        />
+        <input
+          value={code}
+          onChange={(e) => setCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6))}
+          placeholder="6-character code"
+          maxLength={6}
+          className="w-full mt-4 text-center"
+          style={{
+            background: "#FBF6E9", border: "1px solid #8B6F47",
+            borderRadius: 2, padding: "12px 12px",
+            fontFamily: "'Courier New', Courier, monospace",
+            fontSize: 18, letterSpacing: "4px",
+            color: "#1A1A1A", outline: "none",
+          }}
+        />
+        <div className="mt-6">
+          <PrimaryBtn onClick={handleJoin} disabled={!valid || busy}>
+            {busy ? "Joining…" : "Join"}
+          </PrimaryBtn>
+        </div>
+        {toast && (
+          <div
+            className="font-body italic mt-4 text-center"
+            style={{ fontSize: 12, color: "#6B4423", background: "#FBF6E9", padding: "10px 14px", borderRadius: 2, border: "1px solid #8B6F47" }}
+          >
+            {toast}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Lobby({
+  session, me, players, onRefresh, onLeave, onStart,
+}: {
+  session: MPSession;
+  me: MPPlayer;
+  players: MPPlayer[];
+  onRefresh: () => Promise<void>;
+  onLeave: () => void;
+  onStart: () => void;
+}) {
+  const [refreshing, setRefreshing] = useState(false);
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await onRefresh();
+    setRefreshing(false);
+  };
+  const handleShare = async () => {
+    const text = `Join my SwipeLeague — code ${session.join_code} — open ${window.location.href}`;
+    const navAny = navigator as Navigator & { share?: (d: { text: string }) => Promise<void> };
+    if (navAny.share) {
+      try { await navAny.share({ text }); } catch { /* user dismissed */ }
+    } else {
+      try { await navigator.clipboard.writeText(text); } catch { /* ignore */ }
+    }
+  };
+
+  const max = session.max_players ?? 6;
+  const sorted = [...players].sort((a, b) => {
+    if (a.is_host !== b.is_host) return a.is_host ? -1 : 1;
+    return (a.joined_at ?? "").localeCompare(b.joined_at ?? "");
+  });
+  const canStart = me.is_host && players.length >= 2;
+
+  return (
+    <div className="min-h-screen px-6 pt-8 pb-24 relative">
+      <button
+        onClick={onLeave}
+        className="font-body italic"
+        style={{ position: "absolute", bottom: 16, left: 18, color: "#8B6F47", fontSize: 11, background: "transparent" }}
+      >
+        ← leave
+      </button>
+
+      <div className="text-center">
+        <h1 className="font-display italic text-forest" style={{ fontSize: 28, fontWeight: 500 }}>SwipeLeague</h1>
+        <div className="text-walnut mt-1" style={{ fontSize: 9, letterSpacing: "0.25em", color: "#6B4423", fontFamily: "Georgia, serif", textTransform: "uppercase" }}>Est · MMXXVI</div>
+      </div>
+
+      <div className="text-center" style={{ marginTop: 28 }}>
+        <div className="smallcaps" style={{ fontSize: 10, letterSpacing: "0.22em", color: "#8B6F47" }}>Join Code</div>
+        <div
+          className="font-display"
+          style={{
+            fontSize: 56, fontWeight: 700, color: "#1F4D3C",
+            letterSpacing: "8px", marginTop: 6,
+            textShadow: "3px 3px 0 #6B4423",
+            lineHeight: 1.1,
+          }}
+        >
+          {session.join_code}
+        </div>
+        <p className="font-body italic text-sepia mt-3" style={{ fontSize: 12 }}>share this with your group</p>
+        <div style={{ maxWidth: 240, margin: "14px auto 0" }}>
+          <button
+            onClick={handleShare}
+            className="font-display"
+            style={{ background: "#FBF6E9", color: "#1F4D3C", border: "1px solid #1F4D3C", borderRadius: 2, padding: "10px 20px", fontSize: 14, letterSpacing: "1px", textTransform: "uppercase", fontVariant: "small-caps", boxShadow: "2px 2px 0 #1F4D3C", width: "100%" }}
+          >
+            Share Invite
+          </button>
+        </div>
+      </div>
+
+      <div style={{ borderBottom: "1px dotted #6B4423", width: "60%", margin: "28px auto 0" }} />
+
+      <div className="text-center mt-6">
+        <div className="smallcaps" style={{ fontSize: 11, letterSpacing: "0.22em", color: "#8B6F47" }}>Players</div>
+        <ul className="mt-3 space-y-1">
+          {sorted.map((p) => (
+            <li key={p.id} className="smallcaps" style={{ fontSize: 14, letterSpacing: "0.1em", color: "#1A1A1A", fontFamily: "Georgia, serif" }}>
+              <span style={{ color: "#6B4423", marginRight: 8 }}>·</span>
+              {p.display_name}
+              {p.is_host && (
+                <span className="font-body italic" style={{ fontSize: 10, color: "#8B6F47", marginLeft: 6, letterSpacing: 0, textTransform: "none" }}>(host)</span>
+              )}
+            </li>
+          ))}
+        </ul>
+        <div className="font-body italic text-sepia mt-3" style={{ fontSize: 11 }}>{players.length} of {max} players</div>
+      </div>
+
+      <div style={{ maxWidth: 320, margin: "28px auto 0" }}>
+        {me.is_host ? (
+          <>
+            <PrimaryBtn onClick={onStart} disabled={!canStart}>Start Session</PrimaryBtn>
+            {!canStart && (
+              <p className="font-body italic text-center mt-2" style={{ fontSize: 10, color: "#8B6F47" }}>
+                waiting for at least one more player…
+              </p>
+            )}
+          </>
+        ) : (
+          <div className="font-display italic text-forest text-center" style={{ fontSize: 14 }}>
+            Waiting for host to start…
+          </div>
+        )}
+      </div>
+
+      <div className="text-center mt-6">
+        <button
+          onClick={handleRefresh}
+          className="smallcaps"
+          style={{
+            background: "#FBF6E9", color: "#1F4D3C",
+            border: "1px solid #1F4D3C", borderRadius: 2,
+            padding: "8px 18px", fontSize: 11, letterSpacing: "0.18em",
+            fontFamily: "Georgia, serif",
+            boxShadow: "2px 2px 0 #1F4D3C",
+            opacity: refreshing ? 0.6 : 1,
+          }}
+        >
+          ↻ {refreshing ? "refreshing" : "refresh"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function MPPlaceholder({
+  session, cafesById, onExit,
+}: {
+  session: MPSession;
+  cafesById: Record<string, Cafe>;
+  onExit: () => void;
+}) {
+  const pair = session.cafe_pairings?.[0];
+  const a = pair ? cafesById[pair[0]] : null;
+  const b = pair ? cafesById[pair[1]] : null;
+  return (
+    <div className="min-h-screen px-6 pt-12 pb-10 text-center">
+      <div className="smallcaps text-sepia" style={{ fontSize: 10, letterSpacing: "0.22em" }}>Round I</div>
+      <h2 className="font-display italic text-forest mt-3" style={{ fontSize: 24, fontWeight: 500 }}>battle UI coming in Prompt 2</h2>
+      <div className="hairline mt-6 mx-auto" style={{ width: 32 }} />
+      {a && b && (
+        <div className="mt-8 font-display text-ink" style={{ fontSize: 18, lineHeight: 1.6 }}>
+          <div>{a.name}</div>
+          <div className="font-body italic text-sepia my-2" style={{ fontSize: 13 }}>— vs —</div>
+          <div>{b.name}</div>
+        </div>
+      )}
+      <div className="font-body italic text-sepia mt-10" style={{ fontSize: 12 }}>code · {session.join_code}</div>
+      <div className="mt-8" style={{ maxWidth: 240, margin: "32px auto 0" }}>
+        <button
+          onClick={onExit}
+          className="smallcaps"
+          style={{ background: "transparent", color: "#8B6F47", padding: "12px 0", borderRadius: 4, fontSize: 11, letterSpacing: "0.22em", border: "0.5px solid #8B6F47", width: "100%" }}
+        >
+          Exit to Welcome
+        </button>
+      </div>
     </div>
   );
 }
