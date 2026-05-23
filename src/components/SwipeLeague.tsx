@@ -147,6 +147,94 @@ export default function App() {
     return (sess as MPSession) ?? null;
   };
 
+  const createHostSession = async (): Promise<{ ok: true } | { ok: false; error: string }> => {
+    // try up to 5 times for unique code
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const code = genCode();
+      const { data: existing } = await supabase.from("sessions").select("id").eq("join_code", code).maybeSingle();
+      if (existing) continue;
+      const { data: sess, error: sErr } = await supabase
+        .from("sessions")
+        .insert({ mode: "group", join_code: code, region: mpRegion, status: "lobby", max_players: 6, current_round: 0 })
+        .select("*")
+        .single();
+      if (sErr || !sess) return { ok: false, error: sErr?.message ?? "Could not create session" };
+      const { data: player, error: pErr } = await supabase
+        .from("players")
+        .insert({ session_id: sess.id, display_name: mpName.trim(), is_host: true, status: "waiting" })
+        .select("*")
+        .single();
+      if (pErr || !player) return { ok: false, error: pErr?.message ?? "Could not create host" };
+      await supabase.from("sessions").update({ host_player_id: player.id }).eq("id", sess.id);
+      console.log(`Host created session: ${code}, region: ${mpRegion}`);
+      setMpSession({ ...(sess as MPSession), host_player_id: player.id });
+      setMpPlayer(player as MPPlayer);
+      setMpPlayers([player as MPPlayer]);
+      setScreen("mp-lobby");
+      return { ok: true };
+    }
+    return { ok: false, error: "Could not generate a unique code, please try again." };
+  };
+
+  const joinSession = async (code: string, name: string): Promise<string | null> => {
+    const upper = code.toUpperCase();
+    const { data: sess } = await supabase.from("sessions").select("*").eq("join_code", upper).maybeSingle();
+    if (!sess) return "Code not found. Check with your group.";
+    if (sess.status !== "lobby") return "Session already underway. Ask the host to start a new one.";
+    const { data: existingPlayers } = await supabase.from("players").select("id").eq("session_id", sess.id);
+    const max = sess.max_players ?? 6;
+    if ((existingPlayers?.length ?? 0) >= max) return `Session is full (${max} players max). Ask the host to start another one.`;
+    const { data: player, error: pErr } = await supabase
+      .from("players")
+      .insert({ session_id: sess.id, display_name: name.trim(), is_host: false, status: "waiting" })
+      .select("*")
+      .single();
+    if (pErr || !player) return pErr?.message ?? "Could not join session";
+    console.log(`Player joined session: ${upper}, total players: ${(existingPlayers?.length ?? 0) + 1}`);
+    setMpSession(sess as MPSession);
+    setMpPlayer(player as MPPlayer);
+    await refreshLobby(sess.id);
+    setScreen("mp-lobby");
+    return null;
+  };
+
+  const leaveLobby = async () => {
+    if (!mpPlayer || !mpSession) { setScreen("welcome"); return; }
+    const wasHost = mpPlayer.is_host;
+    await supabase.from("players").delete().eq("id", mpPlayer.id);
+    console.log(`Player ${mpPlayer.display_name} left session`);
+    if (wasHost) {
+      const { data: remaining } = await supabase
+        .from("players").select("*").eq("session_id", mpSession.id)
+        .order("joined_at", { ascending: true });
+      if (remaining && remaining.length > 0) {
+        const newHost = remaining[0];
+        await supabase.from("players").update({ is_host: true }).eq("id", newHost.id);
+        await supabase.from("sessions").update({ host_player_id: newHost.id }).eq("id", mpSession.id);
+      } else {
+        await supabase.from("sessions").delete().eq("id", mpSession.id);
+      }
+    }
+    setMpSession(null); setMpPlayer(null); setMpPlayers([]);
+    setScreen("welcome");
+  };
+
+  const startHostSession = async () => {
+    if (!cafes || !mpSession || !mpPlayer?.is_host) return;
+    const regionName = (mpSession.region ?? "All Kolkata") as Region;
+    const pool = regionName === "All Kolkata" ? cafes : cafes.filter((c) => c.region === regionName);
+    const rounds = roundsForCount(pool.length);
+    if (rounds === 0) return;
+    const pairs = buildBattles(pool, rounds);
+    await supabase
+      .from("sessions")
+      .update({ status: "active", current_round: 1, round_started_at: new Date().toISOString(), cafe_pairings: pairs })
+      .eq("id", mpSession.id);
+    console.log(`Host started session — round 1, ${mpPlayers.length} players, ${rounds} rounds total`);
+    setMpSession({ ...mpSession, status: "active", current_round: 1, cafe_pairings: pairs });
+    setScreen("mp-placeholder");
+  };
+
   if (loadError) return <ErrorScreen onRetry={() => setReloadKey((k) => k + 1)} />;
   if (!cafes) return <LoadingScreen />;
 
