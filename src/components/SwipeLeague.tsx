@@ -482,6 +482,23 @@ function Welcome({
             {toast}
           </div>
         )}
+
+        <div className="flex flex-col items-center" style={{ gap: 12, marginTop: 20 }}>
+          <button
+            onClick={onHost}
+            className="font-display"
+            style={{ background: "#FBF6E9", color: "#1F4D3C", border: "1px solid #1F4D3C", borderRadius: 2, padding: "12px 24px", fontSize: 16, letterSpacing: "1px", textTransform: "uppercase", fontVariant: "small-caps", boxShadow: "2px 2px 0 #1F4D3C", width: 240 }}
+          >
+            Play with friends
+          </button>
+          <button
+            onClick={onJoin}
+            className="font-display"
+            style={{ background: "#FBF6E9", color: "#1F4D3C", border: "1px solid #1F4D3C", borderRadius: 2, padding: "12px 24px", fontSize: 16, letterSpacing: "1px", textTransform: "uppercase", fontVariant: "small-caps", boxShadow: "2px 2px 0 #1F4D3C", width: 240 }}
+          >
+            Join with code
+          </button>
+        </div>
       </div>
       <div className="text-center text-sepia pb-8" style={{ fontSize: 14, letterSpacing: "0.4em" }}>· · ·</div>
     </div>
