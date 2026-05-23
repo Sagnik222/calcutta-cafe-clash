@@ -731,7 +731,7 @@ function RatingPopup({ cafe, onClose }: { cafe: Cafe; onClose: () => void }) {
         )}
 
         <div className="font-body italic text-sepia text-center mt-6" style={{ fontSize: 9 }}>
-          Reviews from Google. SwipeLeague does not verify reviews.
+          Reviews from Google. Crown does not verify reviews.
         </div>
       </div>
     </div>
@@ -814,7 +814,7 @@ function SharePreview({ picks, region, onBack }: { picks: Cafe[]; region: Region
       <div className="mx-auto" style={{ aspectRatio: "9 / 16", background: "#F4ECD8", padding: "28px 22px", borderRadius: 6, border: "0.5px solid rgba(139,111,71,0.4)", display: "flex", flexDirection: "column" }}>
         <div className="smallcaps text-sepia" style={{ fontSize: 9, letterSpacing: "0.25em" }}>Est. 2026</div>
         <h2 className="font-display italic text-ink mt-3" style={{ fontSize: 24, fontWeight: 500, lineHeight: 1.1 }}>My {rankTitle(region, picks.length).replace(/^Your /, "")}</h2>
-        <div className="smallcaps text-sepia mt-2" style={{ fontSize: 9, letterSpacing: "0.22em" }}>A SwipeLeague ranking</div>
+        <div className="smallcaps text-sepia mt-2" style={{ fontSize: 9, letterSpacing: "0.22em" }}>A Crown ranking</div>
         <div className="hairline mt-3" style={{ width: 32 }} />
         <ol className="mt-4 space-y-3 flex-1">
           {picks.map((c, i) => (
@@ -829,7 +829,7 @@ function SharePreview({ picks, region, onBack }: { picks: Cafe[]; region: Region
           ))}
         </ol>
         <div className="hairline mt-4" style={{ width: "100%" }} />
-        <div className="smallcaps text-sepia text-center mt-3" style={{ fontSize: 9, letterSpacing: "0.22em" }}>SwipeLeague · Kolkata, ranked by you</div>
+        <div className="smallcaps text-sepia text-center mt-3" style={{ fontSize: 9, letterSpacing: "0.22em" }}>Crown · Kolkata, ranked by you</div>
       </div>
       <button className="smallcaps w-full mt-6" onClick={() => alert("In a real build this would download the card as an image.")} style={{ background: "#1F4D3C", color: "#FBF6E9", padding: "13px 0", borderRadius: 4, fontSize: 11, letterSpacing: "0.22em" }}>Download Image</button>
       <button onClick={onBack} className="font-body italic text-sepia w-full mt-3 text-center" style={{ fontSize: 13, background: "transparent" }}>Back</button>
@@ -1210,7 +1210,7 @@ function Lobby({
     setRefreshing(false);
   };
   const handleShare = async () => {
-    const text = `Join my SwipeLeague — code ${session.join_code} — open ${window.location.href}`;
+    const text = `Join my Crown — code ${session.join_code} — open ${window.location.href}`;
     const navAny = navigator as Navigator & { share?: (d: { text: string }) => Promise<void> };
     if (navAny.share) {
       try { await navAny.share({ text }); } catch { /* user dismissed */ }

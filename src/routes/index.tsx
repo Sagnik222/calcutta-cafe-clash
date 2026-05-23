@@ -1,12 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
-import SwipeLeague from "@/components/SwipeLeague";
+import Crown from "@/components/Crown";
 
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "SwipeLeague — Kolkata, ranked by you" },
+      { title: "Crown — Kolkata, ranked by you" },
       { name: "description", content: "Five quick head-to-head battles between South Kolkata cafés. Get your personal Top V." },
-      { property: "og:title", content: "SwipeLeague — Kolkata, ranked by you" },
+      { property: "og:title", content: "Crown — Kolkata, ranked by you" },
       { property: "og:description", content: "A swipe-based discovery game for Kolkata cafés." },
     ],
   }),
@@ -14,5 +14,5 @@ export const Route = createFileRoute("/")({
 });
 
 function Index() {
-  return <SwipeLeague />;
+  return <Crown />;
 }
