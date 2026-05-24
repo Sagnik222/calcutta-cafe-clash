@@ -27,7 +27,11 @@ type Screen =
   | "mp-host-region"
   | "mp-join"
   | "mp-lobby"
-  | "mp-placeholder";
+  | "mp-battle"
+  | "mp-rank"
+  | "mp-waiting-rank"
+  | "mp-result"
+  | "mp-share";
 
 type MPSession = {
   id: string;
@@ -37,7 +41,9 @@ type MPSession = {
   host_player_id: string | null;
   max_players: number | null;
   current_round: number | null;
+  round_started_at?: string | null;
   cafe_pairings?: [string, string][] | null;
+  collective_ranking?: string[] | null;
 };
 type MPPlayer = {
   id: string;
@@ -45,8 +51,20 @@ type MPPlayer = {
   display_name: string;
   is_host: boolean;
   joined_at: string | null;
+  last_seen_at?: string | null;
   status: string | null;
+  individual_ranking?: string[] | null;
 };
+type MPVote = {
+  id: string;
+  session_id: string;
+  player_id: string;
+  round_number: number;
+  cafe_id: string;
+  is_abstain: boolean | null;
+};
+
+const LS_KEY = "crown_mp_session";
 
 function genCode(): string {
   const A = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
