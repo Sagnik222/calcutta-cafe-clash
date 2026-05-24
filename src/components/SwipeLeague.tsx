@@ -135,6 +135,21 @@ export default function App() {
   const [mpSession, setMpSession] = useState<MPSession | null>(null);
   const [mpPlayer, setMpPlayer] = useState<MPPlayer | null>(null);
   const [mpPlayers, setMpPlayers] = useState<MPPlayer[]>([]);
+  const [mpVotes, setMpVotes] = useState<MPVote[]>([]); // votes for current round
+  const [mpReconnecting, setMpReconnecting] = useState(false);
+
+  // refs for stable handlers in realtime callbacks
+  const mpSessionRef = useRef<MPSession | null>(null);
+  const mpPlayerRef = useRef<MPPlayer | null>(null);
+  const mpPlayersRef = useRef<MPPlayer[]>([]);
+  const mpVotesRef = useRef<MPVote[]>([]);
+  const cafesRef = useRef<Cafe[] | null>(null);
+  useEffect(() => { mpSessionRef.current = mpSession; }, [mpSession]);
+  useEffect(() => { mpPlayerRef.current = mpPlayer; }, [mpPlayer]);
+  useEffect(() => { mpPlayersRef.current = mpPlayers; }, [mpPlayers]);
+  useEffect(() => { mpVotesRef.current = mpVotes; }, [mpVotes]);
+  useEffect(() => { cafesRef.current = cafes; }, [cafes]);
+
 
   const goBattle = () => {
     if (!cafes) return;
