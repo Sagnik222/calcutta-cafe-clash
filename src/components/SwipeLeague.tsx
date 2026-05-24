@@ -1584,21 +1584,14 @@ function JoinStep({
 }
 
 function Lobby({
-  session, me, players, onRefresh, onLeave, onStart,
+  session, me, players, onLeave, onStart,
 }: {
   session: MPSession;
   me: MPPlayer;
   players: MPPlayer[];
-  onRefresh: () => Promise<void>;
   onLeave: () => void;
   onStart: () => void;
 }) {
-  const [refreshing, setRefreshing] = useState(false);
-  const handleRefresh = async () => {
-    setRefreshing(true);
-    await onRefresh();
-    setRefreshing(false);
-  };
   const handleShare = async () => {
     const text = `Join my Crown — code ${session.join_code} — open ${window.location.href}`;
     const navAny = navigator as Navigator & { share?: (d: { text: string }) => Promise<void> };
@@ -1690,59 +1683,374 @@ function Lobby({
           </div>
         )}
       </div>
+    </div>
+  );
+}
 
-      <div className="text-center mt-6">
+/* ============================ MP BATTLE / RANK WAIT / RESULT ============================ */
+
+function MPBattle({
+  session, me, players, votes, a, b, activePlayersOf, onPick, onExit,
+}: {
+  session: MPSession;
+  me: MPPlayer;
+  players: MPPlayer[];
+  votes: MPVote[];
+  a: Cafe;
+  b: Cafe;
+  activePlayersOf: (pls: MPPlayer[]) => MPPlayer[];
+  onPick: (cafeId: string) => Promise<void>;
+  onExit: () => void;
+}) {
+  const totalRounds = session.cafe_pairings?.length ?? 5;
+  const round = session.current_round ?? 1;
+  const myVote = votes.find((v) => v.player_id === me.id);
+  const active = activePlayersOf(players);
+  const votedCount = votes.filter((v) => active.some((p) => p.id === v.player_id)).length;
+  const activeCount = active.length;
+
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const i = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(i);
+  }, []);
+  const startedAt = session.round_started_at ? new Date(session.round_started_at).getTime() : now;
+  const remaining = Math.max(0, 60 - Math.floor((now - startedAt) / 1000));
+
+  const myPickName = myVote ? (myVote.cafe_id === a.id ? a.name : b.name) : null;
+
+  const handleTap = (cafeId: string) => {
+    if (myVote) return;
+    void onPick(cafeId);
+  };
+
+  return (
+    <div className="px-6 pt-6 pb-10 flex flex-col" style={{ minHeight: "100vh" }}>
+      <div className="text-center">
+        <BrandTitle size={20} />
+      </div>
+      <div className="text-center mt-4">
+        <div className="smallcaps text-sepia" style={{ fontSize: 11, letterSpacing: "0.22em" }}>
+          Round {ROMAN[round - 1]}
+        </div>
+        <div className="flex justify-center items-center gap-2 mt-2">
+          {Array.from({ length: totalRounds }).map((_, i) => (
+            <span key={i} style={{
+              width: 8, height: 8, borderRadius: "50%",
+              background: i < round ? "#1F4D3C" : "transparent",
+              border: i < round ? "none" : "1px solid #8B6F47",
+              display: "inline-block",
+            }} />
+          ))}
+        </div>
+      </div>
+      <div className="flex-1 flex flex-col justify-center gap-4 py-6">
+        <MPCafeCard cafe={a} picked={myVote?.cafe_id === a.id} dimmed={!!myVote && myVote.cafe_id !== a.id} onClick={() => handleTap(a.id)} />
+        <div className="text-center font-display italic text-sepia" style={{ fontSize: 16 }}>— or —</div>
+        <MPCafeCard cafe={b} picked={myVote?.cafe_id === b.id} dimmed={!!myVote && myVote.cafe_id !== b.id} onClick={() => handleTap(b.id)} />
+      </div>
+
+      <div className="text-center">
+        <div className="font-body italic text-sepia" style={{ fontSize: 12 }}>
+          {myVote
+            ? `You picked ${myPickName}. Waiting for others…`
+            : "Tap your pick — others are deciding too"}
+        </div>
+        <div className="smallcaps mt-2" style={{ fontSize: 11, letterSpacing: "0.2em", color: "#6B4423" }}>
+          {votedCount} of {activeCount} voted
+        </div>
+        {remaining > 0 && remaining <= 30 && remaining > 10 && (
+          <div className="font-body italic mt-2" style={{ fontSize: 11, color: "#8B6F47" }}>
+            30 seconds left for everyone to vote
+          </div>
+        )}
+        {remaining > 0 && remaining <= 10 && (
+          <div className="font-body italic mt-2" style={{ fontSize: 11, color: "#6B4423" }}>
+            {remaining} seconds left…
+          </div>
+        )}
+      </div>
+
+      <div className="text-center mt-6 flex items-center justify-center gap-4">
+        <div className="font-body italic text-sepia" style={{ fontSize: 10 }}>code · {session.join_code}</div>
         <button
-          onClick={handleRefresh}
-          className="smallcaps"
-          style={{
-            background: "#FBF6E9", color: "#1F4D3C",
-            border: "1px solid #1F4D3C", borderRadius: 2,
-            padding: "8px 18px", fontSize: 11, letterSpacing: "0.18em",
-            fontFamily: "Georgia, serif",
-            boxShadow: "2px 2px 0 #1F4D3C",
-            opacity: refreshing ? 0.6 : 1,
-          }}
+          onClick={onExit}
+          className="font-body italic"
+          style={{ color: "#8B6F47", fontSize: 10, background: "transparent" }}
         >
-          ↻ {refreshing ? "refreshing" : "refresh"}
+          leave
         </button>
       </div>
     </div>
   );
 }
 
-function MPPlaceholder({
-  session, cafesById, onExit,
-}: {
-  session: MPSession;
-  cafesById: Record<string, Cafe>;
-  onExit: () => void;
-}) {
-  const pair = session.cafe_pairings?.[0];
-  const a = pair ? cafesById[pair[0]] : null;
-  const b = pair ? cafesById[pair[1]] : null;
+function MPCafeCard({ cafe, picked, dimmed, onClick }: { cafe: Cafe; picked: boolean; dimmed: boolean; onClick: () => void }) {
   return (
-    <div className="min-h-screen px-6 pt-12 pb-10 text-center">
-      <div className="smallcaps text-sepia" style={{ fontSize: 10, letterSpacing: "0.22em" }}>Round I</div>
-      <h2 className="font-display italic text-forest mt-3" style={{ fontSize: 24, fontWeight: 500 }}>battle UI coming in Prompt 2</h2>
-      <div className="hairline mt-6 mx-auto" style={{ width: 32 }} />
-      {a && b && (
-        <div className="mt-8 font-display text-ink" style={{ fontSize: 18, lineHeight: 1.6 }}>
-          <div>{a.name}</div>
-          <div className="font-body italic text-sepia my-2" style={{ fontSize: 13 }}>— vs —</div>
-          <div>{b.name}</div>
+    <div className="relative">
+      <button
+        onClick={onClick}
+        disabled={dimmed}
+        className={`w-full text-left rounded-[6px] overflow-hidden block relative ${picked ? "card-selected pulse-once" : "card-unselected"}`}
+        style={{ background: "#FBF6E9", opacity: dimmed ? 0.5 : 1, transition: "opacity 250ms", outline: "none" }}
+      >
+        <CafeCardImage cafe={cafe} />
+        <div style={{ padding: 16, paddingBottom: 36 }}>
+          <div className="font-display text-ink" style={{ fontSize: 18, fontWeight: 500, lineHeight: 1.2 }}>{cafe.name}</div>
+          <div className="font-body italic text-sepia mt-1" style={{ fontSize: 12 }}>{cafe.neighborhood}</div>
+          {cafe.short_description && (
+            <div className="font-body italic text-sepia mt-2" style={{ fontSize: 11, lineHeight: 1.4, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+              {cafe.short_description}
+            </div>
+          )}
+          {cafe.well_known_for && cafe.well_known_for.length > 0 && (
+            <div className="mt-2" style={{ fontSize: 10, color: "#6B4423", fontFamily: "Georgia, serif", lineHeight: 1.4 }}>
+              <span className="italic">Known for: </span>
+              {cafe.well_known_for.map((k, i) => (
+                <span key={i}>
+                  <span className="dotted-under">{k}</span>
+                  {i < cafe.well_known_for!.length - 1 && <span> · </span>}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+        <RatingTag cafe={cafe} />
+      </button>
+      {picked && (
+        <div style={{
+          position: "absolute", top: 8, right: 8,
+          background: "#1F4D3C", color: "#FBF6E9",
+          fontFamily: "Georgia, serif", fontSize: 11,
+          padding: "3px 8px", borderRadius: 2,
+          letterSpacing: "0.1em",
+          boxShadow: "1px 1px 0 #6B4423",
+        }}>
+          ✓ your pick
         </div>
       )}
-      <div className="font-body italic text-sepia mt-10" style={{ fontSize: 12 }}>code · {session.join_code}</div>
-      <div className="mt-8" style={{ maxWidth: 240, margin: "32px auto 0" }}>
+    </div>
+  );
+}
+
+function MPWaitingRank({
+  players, activePlayersOf, onExit,
+}: {
+  players: MPPlayer[];
+  activePlayersOf: (pls: MPPlayer[]) => MPPlayer[];
+  onExit: () => void;
+}) {
+  const active = activePlayersOf(players);
+  const done = active.filter((p) => Array.isArray(p.individual_ranking) && (p.individual_ranking as string[]).length > 0);
+  return (
+    <div className="min-h-screen px-6 pt-12 pb-10 text-center flex flex-col">
+      <BrandTitle size={24} />
+      <div className="hairline mt-6 mx-auto" style={{ width: 32 }} />
+      <h2 className="font-display italic text-forest mt-6" style={{ fontSize: 22, fontWeight: 500 }}>Waiting for group to finish ranking…</h2>
+      <div className="smallcaps mt-3" style={{ fontSize: 11, letterSpacing: "0.22em", color: "#6B4423" }}>
+        {done.length} of {active.length} players done
+      </div>
+      <ul className="mt-8 space-y-2 mx-auto" style={{ maxWidth: 240 }}>
+        {active.map((p) => {
+          const isDone = Array.isArray(p.individual_ranking) && (p.individual_ranking as string[]).length > 0;
+          return (
+            <li key={p.id} className="flex items-center justify-between" style={{ fontFamily: "Georgia, serif" }}>
+              <span className="smallcaps" style={{ fontSize: 13, letterSpacing: "0.1em", color: "#1A1A1A" }}>{p.display_name}</span>
+              <span style={{ fontSize: 14, color: isDone ? "#1F4D3C" : "#8B6F47" }}>{isDone ? "✓" : "…"}</span>
+            </li>
+          );
+        })}
+      </ul>
+      <div className="flex-1" />
+      <div className="mt-8" style={{ maxWidth: 200, margin: "32px auto 0" }}>
         <button
           onClick={onExit}
           className="smallcaps"
-          style={{ background: "transparent", color: "#8B6F47", padding: "12px 0", borderRadius: 4, fontSize: 11, letterSpacing: "0.22em", border: "0.5px solid #8B6F47", width: "100%" }}
+          style={{ background: "transparent", color: "#8B6F47", padding: "10px 0", borderRadius: 4, fontSize: 10, letterSpacing: "0.22em", border: "0.5px solid #8B6F47", width: "100%" }}
         >
-          Exit to Welcome
+          Exit
         </button>
       </div>
+    </div>
+  );
+}
+
+function MPResult({
+  session, me, players, cafesById, onExit, onShare,
+}: {
+  session: MPSession;
+  me: MPPlayer;
+  players: MPPlayer[];
+  cafesById: Record<string, Cafe>;
+  onExit: () => void;
+  onShare: () => void;
+}) {
+  const [view, setView] = useState<"yours" | "ours">("yours");
+  const regionName = (session.region ?? "All Kolkata") as Region;
+
+  const yoursIds = (me.individual_ranking as string[] | null) ?? [];
+  const oursIds = session.collective_ranking ?? [];
+  const yours = yoursIds.map((id) => cafesById[id]).filter(Boolean) as Cafe[];
+  const ours = oursIds.map((id) => cafesById[id]).filter(Boolean) as Cafe[];
+
+  // map of cafe_id → initials of players who ranked it #1
+  const firstByCafe: Record<string, string[]> = {};
+  players.forEach((p) => {
+    const arr = p.individual_ranking as string[] | null;
+    if (arr && arr.length > 0) {
+      const id = arr[0];
+      const init = (p.display_name?.[0] ?? "").toUpperCase();
+      if (init) (firstByCafe[id] ||= []).push(init);
+    }
+  });
+
+  return (
+    <div className="px-6 pt-8 pb-10">
+      <div className="text-center">
+        <BrandTitle size={22} />
+      </div>
+
+      <div className="mt-6 flex gap-2 justify-center">
+        {(["yours", "ours"] as const).map((v) => {
+          const active = view === v;
+          const label = v === "yours" ? `Your Top ${ROMAN[yours.length - 1] ?? "V"}` : `Our Top ${ROMAN[ours.length - 1] ?? "V"}`;
+          return (
+            <button
+              key={v}
+              onClick={() => setView(v)}
+              className="smallcaps"
+              style={{
+                background: active ? "#1F4D3C" : "#FBF6E9",
+                color: active ? "#FBF6E9" : "#1F4D3C",
+                border: active ? "none" : "1px solid #1F4D3C",
+                borderRadius: 999, padding: "8px 16px",
+                fontSize: 10, letterSpacing: "0.2em",
+                fontFamily: "Georgia, serif",
+                boxShadow: active ? "2px 2px 0 #6B4423" : "none",
+              }}
+            >
+              {label.toUpperCase()}
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="hairline mt-6 mx-auto" style={{ width: 32 }} />
+
+      {view === "yours" && (
+        <>
+          <h2 className="font-display text-forest mt-5" style={{ fontSize: 22, fontWeight: 500 }}>
+            {regionName === "All Kolkata" ? `Your Kolkata Top ${ROMAN[yours.length - 1] ?? "V"}` : `Your ${regionName} Top ${ROMAN[yours.length - 1] ?? "V"}`}
+          </h2>
+          <RankList picks={yours} firstByCafe={null} />
+        </>
+      )}
+      {view === "ours" && (
+        <>
+          <h2 className="font-display text-forest mt-5" style={{ fontSize: 22, fontWeight: 500 }}>
+            {regionName === "All Kolkata" ? `Our Kolkata Top ${ROMAN[ours.length - 1] ?? "V"}` : `Our ${regionName} Top ${ROMAN[ours.length - 1] ?? "V"}`}
+          </h2>
+          <RankList picks={ours} firstByCafe={firstByCafe} />
+        </>
+      )}
+
+      <div className="mt-10 flex gap-3">
+        <button
+          onClick={onShare}
+          className="smallcaps flex-1"
+          style={{ background: "#1F4D3C", color: "#FBF6E9", padding: "12px 0", borderRadius: 4, fontSize: 10, letterSpacing: "0.22em" }}
+        >
+          Share Our Ranking
+        </button>
+        <button
+          onClick={onExit}
+          className="smallcaps flex-1"
+          style={{ background: "transparent", color: "#8B6F47", padding: "11px 0", borderRadius: 4, fontSize: 10, letterSpacing: "0.22em", border: "0.5px solid #8B6F47" }}
+        >
+          Done
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function RankList({ picks, firstByCafe }: { picks: Cafe[]; firstByCafe: Record<string, string[]> | null }) {
+  return (
+    <ol className="mt-7 space-y-5">
+      {picks.map((c, i) => {
+        const known = c.well_known_for?.[i % (c.well_known_for.length || 1)];
+        const firsts = firstByCafe?.[c.id] ?? [];
+        return (
+          <li key={c.id} className="flex items-start gap-4">
+            <div className="font-display text-ink" style={{ fontSize: 20, width: 28, textAlign: "center", lineHeight: 1.2 }}>{ROMAN[i]}</div>
+            <CafeImage cafe={c} size={48} />
+            <div className="flex-1 min-w-0 relative" style={{ paddingRight: 56 }}>
+              <div className="font-display text-ink" style={{ fontSize: 15, fontWeight: 500 }}>{c.name}</div>
+              <div className="font-body italic text-sepia" style={{ fontSize: 11 }}>{c.neighborhood}</div>
+              {known && (
+                <div style={{ fontSize: 10, color: "#6B4423", fontFamily: "Georgia, serif", marginTop: 2 }}>
+                  <span className="italic">known for </span>
+                  <span className="dotted-under">{known}</span>
+                </div>
+              )}
+              {firsts.length > 0 && (
+                <div className="smallcaps mt-1" style={{ fontSize: 9, letterSpacing: "0.18em", color: "#6B4423" }}>
+                  {firsts.join(" · ")}
+                </div>
+              )}
+              {c.google_rating != null && (
+                <div style={{ position: "absolute", top: 0, right: 0 }}>
+                  <InlineRating cafe={c} />
+                </div>
+              )}
+            </div>
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+function MPSharePreview({
+  session, players, cafesById, onBack,
+}: {
+  session: MPSession;
+  players: MPPlayer[];
+  cafesById: Record<string, Cafe>;
+  onBack: () => void;
+}) {
+  const ids = session.collective_ranking ?? [];
+  const picks = ids.map((id) => cafesById[id]).filter(Boolean) as Cafe[];
+  const regionName = (session.region ?? "All Kolkata") as Region;
+  const names = players.map((p) => (p.display_name ?? "").toUpperCase()).filter(Boolean);
+  const title = regionName === "All Kolkata" ? `Our Kolkata Top ${ROMAN[picks.length - 1] ?? "V"}` : `Our ${regionName} Top ${ROMAN[picks.length - 1] ?? "V"}`;
+  return (
+    <div className="px-5 pt-6 pb-10">
+      <div className="mx-auto" style={{ aspectRatio: "9 / 16", background: "#F4ECD8", padding: "28px 22px", borderRadius: 6, border: "0.5px solid rgba(139,111,71,0.4)", display: "flex", flexDirection: "column" }}>
+        <div className="smallcaps text-sepia" style={{ fontSize: 9, letterSpacing: "0.25em" }}>Est. 2026</div>
+        <h2 className="font-display italic text-ink mt-3" style={{ fontSize: 24, fontWeight: 500, lineHeight: 1.1 }}>{title}</h2>
+        <div className="smallcaps text-sepia mt-2" style={{ fontSize: 9, letterSpacing: "0.22em" }}>A Crown group ranking</div>
+        <div className="hairline mt-3" style={{ width: 32 }} />
+        <ol className="mt-4 space-y-3 flex-1">
+          {picks.map((c, i) => (
+            <li key={c.id} className="flex items-center gap-3">
+              <div className="font-display text-forest" style={{ fontSize: 16, width: 22, textAlign: "center" }}>{ROMAN[i]}</div>
+              <CafeImage cafe={c} size={32} />
+              <div className="flex-1 min-w-0">
+                <div className="font-display text-ink truncate" style={{ fontSize: 13, fontWeight: 500, lineHeight: 1.2 }}>{c.name}</div>
+                <div className="font-body italic text-sepia" style={{ fontSize: 10 }}>{c.neighborhood}</div>
+              </div>
+            </li>
+          ))}
+        </ol>
+        <div className="hairline mt-4" style={{ width: "100%" }} />
+        <div className="smallcaps text-walnut text-center mt-3" style={{ fontSize: 11, letterSpacing: "0.18em", color: "#6B4423" }}>
+          {names.join(" · ")}
+        </div>
+        <div className="font-body italic text-sepia text-center mt-2" style={{ fontSize: 10 }}>Crown — Kolkata, ranked by you.</div>
+      </div>
+      <button className="smallcaps w-full mt-6" onClick={() => alert("In a real build this would download the card as an image.")} style={{ background: "#1F4D3C", color: "#FBF6E9", padding: "13px 0", borderRadius: 4, fontSize: 11, letterSpacing: "0.22em" }}>Download Image</button>
+      <button onClick={onBack} className="font-body italic text-sepia w-full mt-3 text-center" style={{ fontSize: 13, background: "transparent" }}>Back</button>
     </div>
   );
 }
