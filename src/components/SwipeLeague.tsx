@@ -261,7 +261,8 @@ export default function App() {
         await supabase.from("sessions").delete().eq("id", mpSession.id);
       }
     }
-    setMpSession(null); setMpPlayer(null); setMpPlayers([]);
+    localStorage.removeItem(LS_KEY);
+    setMpSession(null); setMpPlayer(null); setMpPlayers([]); setMpVotes([]); setMpMyPicks([]);
     setScreen("welcome");
   };
 
@@ -277,9 +278,322 @@ export default function App() {
       .update({ status: "active", current_round: 1, round_started_at: new Date().toISOString(), cafe_pairings: pairs })
       .eq("id", mpSession.id);
     console.log(`Host started session — round 1, ${mpPlayers.length} players, ${rounds} rounds total`);
-    setMpSession({ ...mpSession, status: "active", current_round: 1, cafe_pairings: pairs });
-    setScreen("mp-placeholder");
+    // realtime will navigate everyone
   };
+
+  /* =========== MULTIPLAYER ENGINE =========== */
+
+  const [mpMyPicks, setMpMyPicks] = useState<string[]>([]);
+  const mpMyPicksRef = useRef<string[]>([]);
+  useEffect(() => { mpMyPicksRef.current = mpMyPicks; }, [mpMyPicks]);
+
+  const activePlayersOf = (pls: MPPlayer[]): MPPlayer[] => {
+    const now = Date.now();
+    return pls.filter((p) => {
+      if (p.status === "left") return false;
+      const seen = p.last_seen_at ? new Date(p.last_seen_at).getTime() : null;
+      const joined = p.joined_at ? new Date(p.joined_at).getTime() : null;
+      const ref = seen ?? joined ?? now;
+      return now - ref < 90000;
+    });
+  };
+
+  const isHostActor = (): boolean => {
+    const sess = mpSessionRef.current;
+    const me = mpPlayerRef.current;
+    if (!sess || !me) return false;
+    if (sess.host_player_id === me.id) {
+      // verify I'm not stale myself (always true if I'm running)
+      return true;
+    }
+    const players = mpPlayersRef.current;
+    const host = players.find((p) => p.id === sess.host_player_id);
+    const now = Date.now();
+    const stale = !host || !host.last_seen_at || (now - new Date(host.last_seen_at).getTime() > 90000);
+    if (!stale) return false;
+    const active = activePlayersOf(players);
+    if (active.length === 0) return false;
+    const earliest = [...active].sort((a, b) => (a.joined_at ?? "").localeCompare(b.joined_at ?? ""))[0];
+    return earliest.id === me.id;
+  };
+
+  const advanceRoundNow = async () => {
+    const sess = mpSessionRef.current;
+    if (!sess || !sess.current_round || !sess.cafe_pairings) return;
+    const total = sess.cafe_pairings.length;
+    if (sess.current_round >= total) {
+      console.log(`[Round] All rounds done → ranking`);
+      await supabase.from("sessions").update({ status: "ranking" }).eq("id", sess.id);
+    } else {
+      const next = sess.current_round + 1;
+      console.log(`[Round] Advancing from round ${sess.current_round} to round ${next}`);
+      await supabase
+        .from("sessions")
+        .update({ current_round: next, round_started_at: new Date().toISOString() })
+        .eq("id", sess.id);
+    }
+  };
+
+  const maybeAdvanceRound = async () => {
+    if (!isHostActor()) return;
+    const sess = mpSessionRef.current;
+    if (!sess || sess.status !== "active" || !sess.current_round) return;
+    const { data: votes } = await supabase
+      .from("votes").select("player_id")
+      .eq("session_id", sess.id).eq("round_number", sess.current_round);
+    const voterIds = new Set((votes ?? []).map((v) => v.player_id));
+    const active = activePlayersOf(mpPlayersRef.current);
+    if (active.length === 0) return;
+    const allVoted = active.every((p) => voterIds.has(p.id));
+    if (allVoted) await advanceRoundNow();
+  };
+
+  const checkTimeout = async () => {
+    if (!isHostActor()) return;
+    const sess = mpSessionRef.current;
+    if (!sess || sess.status !== "active" || !sess.current_round || !sess.round_started_at) return;
+    const elapsed = Date.now() - new Date(sess.round_started_at).getTime();
+    if (elapsed < 60000) return;
+    const pair = sess.cafe_pairings?.[sess.current_round - 1];
+    if (!pair) return;
+    const { data: votes } = await supabase
+      .from("votes").select("player_id")
+      .eq("session_id", sess.id).eq("round_number", sess.current_round);
+    const voterIds = new Set((votes ?? []).map((v) => v.player_id));
+    const active = activePlayersOf(mpPlayersRef.current);
+    const missing = active.filter((p) => !voterIds.has(p.id));
+    if (missing.length > 0) {
+      const rows = missing.map((p) => ({
+        session_id: sess.id, player_id: p.id,
+        round_number: sess.current_round!,
+        cafe_id: pair[Math.floor(Math.random() * 2)],
+        is_abstain: true,
+      }));
+      await supabase.from("votes").insert(rows);
+      console.log(`[Timeout] Round ${sess.current_round} timed out, ${missing.length} players abstained`);
+    }
+    await advanceRoundNow();
+  };
+
+  const castVote = async (cafeId: string) => {
+    const sess = mpSessionRef.current; const me = mpPlayerRef.current;
+    if (!sess || !me || !sess.current_round) return;
+    const cafe = cafesById[cafeId];
+    console.log(`[Vote] Player ${me.display_name} voted for café ${cafe?.name ?? cafeId} in round ${sess.current_round}`);
+    const { error } = await supabase.from("votes").insert({
+      session_id: sess.id, player_id: me.id,
+      round_number: sess.current_round, cafe_id: cafeId, is_abstain: false,
+    });
+    if (error) {
+      // unique-constraint duplicate is fine, swallow
+      if (!String(error.message).toLowerCase().includes("duplicate") && error.code !== "23505") {
+        console.error("vote insert error:", error);
+      }
+    }
+    // optimistic local
+    setMpVotes((prev) => prev.some((v) => v.player_id === me.id) ? prev : [
+      ...prev,
+      { id: `local-${Date.now()}`, session_id: sess.id, player_id: me.id, round_number: sess.current_round!, cafe_id: cafeId, is_abstain: false },
+    ]);
+    setTimeout(() => { void maybeAdvanceRound(); }, 200);
+  };
+
+  const computeBorda = async () => {
+    if (!isHostActor()) return;
+    const sess = mpSessionRef.current;
+    if (!sess || sess.status !== "ranking") return;
+    const { data: pls } = await supabase.from("players")
+      .select("id, individual_ranking, display_name").eq("session_id", sess.id);
+    const ranked = (pls ?? []).filter((p) => Array.isArray(p.individual_ranking) && p.individual_ranking.length > 0);
+    const active = activePlayersOf(mpPlayersRef.current);
+    if (ranked.length < active.length) return;
+    const points: Record<string, number> = {};
+    const firsts: Record<string, number> = {};
+    for (const p of ranked) {
+      const arr = p.individual_ranking as string[];
+      arr.forEach((id, i) => {
+        const pts = arr.length - i;
+        points[id] = (points[id] ?? 0) + pts;
+        if (i === 0) firsts[id] = (firsts[id] ?? 0) + 1;
+      });
+    }
+    const byId = cafesById;
+    const sorted = Object.keys(points).sort((a, b) => {
+      if (points[b] !== points[a]) return points[b] - points[a];
+      const fa = firsts[a] ?? 0; const fb = firsts[b] ?? 0;
+      if (fb !== fa) return fb - fa;
+      return (byId[a]?.name ?? "").localeCompare(byId[b]?.name ?? "");
+    });
+    const topN = sorted.slice(0, sess.cafe_pairings?.length ?? 5);
+    console.log("[Borda] Computed final ranking:", topN.map((id) => byId[id]?.name));
+    await supabase.from("sessions")
+      .update({ collective_ranking: topN, status: "completed" })
+      .eq("id", sess.id);
+  };
+
+  const submitMyRanking = async (order: string[]) => {
+    const me = mpPlayerRef.current;
+    if (!me) return;
+    await supabase.from("players")
+      .update({ individual_ranking: order, status: "done" })
+      .eq("id", me.id);
+    setMpPlayer({ ...me, individual_ranking: order, status: "done" });
+    setScreen("mp-waiting-rank");
+    setTimeout(() => { void computeBorda(); }, 400);
+  };
+
+  /* =========== REALTIME SUBSCRIPTIONS =========== */
+  useEffect(() => {
+    if (!mpSession) return;
+    const sid = mpSession.id;
+    const playerCh = supabase.channel(`players:${sid}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "players", filter: `session_id=eq.${sid}` }, async () => {
+        const { data } = await supabase.from("players").select("*").eq("session_id", sid).order("joined_at", { ascending: true });
+        if (data) setMpPlayers(data as MPPlayer[]);
+        if (mpSessionRef.current?.status === "ranking") {
+          setTimeout(() => { void computeBorda(); }, 200);
+        }
+      });
+    const sessCh = supabase.channel(`sessions:${sid}`)
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "sessions", filter: `id=eq.${sid}` }, (payload) => {
+        const newSess = payload.new as MPSession;
+        const prev = mpSessionRef.current;
+        setMpSession(newSess);
+        if (newSess.status === "active" && prev?.status !== "active") {
+          setMpVotes([]); setScreen("mp-battle");
+        }
+        if (prev?.current_round && newSess.current_round && newSess.current_round !== prev.current_round) {
+          setMpVotes([]);
+        }
+        if (newSess.status === "ranking" && prev?.status !== "ranking") {
+          setScreen("mp-rank");
+        }
+        if (newSess.status === "completed" && prev?.status !== "completed") {
+          setScreen("mp-result");
+        }
+      });
+    const voteCh = supabase.channel(`votes:${sid}`)
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "votes", filter: `session_id=eq.${sid}` }, (payload) => {
+        const v = payload.new as MPVote;
+        const sess = mpSessionRef.current;
+        if (!sess || v.round_number !== sess.current_round) return;
+        setMpVotes((prev) => prev.some((x) => x.player_id === v.player_id && !String(x.id).startsWith("local-")) ? prev : [
+          ...prev.filter((x) => x.player_id !== v.player_id), v,
+        ]);
+        setTimeout(() => { void maybeAdvanceRound(); }, 300);
+      });
+    playerCh.subscribe((s) => { if (s === "SUBSCRIBED") console.log(`[Realtime] Subscribed to channel: players:${sid}`); });
+    sessCh.subscribe((s) => { if (s === "SUBSCRIBED") console.log(`[Realtime] Subscribed to channel: sessions:${sid}`); });
+    voteCh.subscribe((s) => { if (s === "SUBSCRIBED") console.log(`[Realtime] Subscribed to channel: votes:${sid}`); });
+    return () => {
+      supabase.removeChannel(playerCh);
+      supabase.removeChannel(sessCh);
+      supabase.removeChannel(voteCh);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mpSession?.id]);
+
+  // Heartbeat
+  useEffect(() => {
+    if (!mpPlayer) return;
+    const pid = mpPlayer.id;
+    const ping = () => { void supabase.from("players").update({ last_seen_at: new Date().toISOString() }).eq("id", pid); };
+    ping();
+    const i = window.setInterval(ping, 20000);
+    return () => window.clearInterval(i);
+  }, [mpPlayer?.id]);
+
+  // Timeout poll (only meaningful for host actor)
+  useEffect(() => {
+    if (!mpSession || mpSession.status !== "active") return;
+    const i = window.setInterval(() => { void checkTimeout(); }, 5000);
+    return () => window.clearInterval(i);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mpSession?.id, mpSession?.status]);
+
+  // Initial / round-change vote fetch
+  useEffect(() => {
+    if (!mpSession || !mpSession.current_round || mpSession.status !== "active") return;
+    supabase.from("votes").select("*")
+      .eq("session_id", mpSession.id).eq("round_number", mpSession.current_round)
+      .then(({ data }) => { if (data) setMpVotes(data as MPVote[]); });
+  }, [mpSession?.id, mpSession?.current_round, mpSession?.status]);
+
+  // Ranking phase: assemble my picks (cafés I voted for, auto-filled for missed rounds)
+  useEffect(() => {
+    if (mpSession?.status !== "ranking" || !mpPlayer || !mpSession.cafe_pairings) return;
+    (async () => {
+      const { data } = await supabase.from("votes")
+        .select("round_number, cafe_id")
+        .eq("session_id", mpSession.id).eq("player_id", mpPlayer.id)
+        .order("round_number", { ascending: true });
+      const byRound = new Map<number, string>();
+      (data ?? []).forEach((v) => byRound.set(v.round_number, v.cafe_id));
+      const inserts: Array<{ session_id: string; player_id: string; round_number: number; cafe_id: string; is_abstain: boolean }> = [];
+      const picks: string[] = [];
+      mpSession.cafe_pairings!.forEach((pair, i) => {
+        const r = i + 1;
+        let id = byRound.get(r);
+        if (!id) {
+          id = pair[Math.floor(Math.random() * 2)];
+          inserts.push({ session_id: mpSession.id, player_id: mpPlayer.id, round_number: r, cafe_id: id, is_abstain: true });
+        }
+        picks.push(id);
+      });
+      if (inserts.length > 0) {
+        await supabase.from("votes").insert(inserts);
+      }
+      setMpMyPicks(Array.from(new Set(picks)));
+    })();
+  }, [mpSession?.status, mpSession?.id, mpPlayer?.id]);
+
+  // Persist + reconnect
+  useEffect(() => {
+    if (mpSession && mpPlayer) {
+      localStorage.setItem(LS_KEY, JSON.stringify({ session_id: mpSession.id, player_id: mpPlayer.id }));
+    }
+  }, [mpSession?.id, mpPlayer?.id]);
+
+  useEffect(() => {
+    if (!cafes || mpSession || mpReconnecting) return;
+    const raw = localStorage.getItem(LS_KEY);
+    if (!raw) return;
+    setMpReconnecting(true);
+    (async () => {
+      try {
+        const { session_id, player_id } = JSON.parse(raw) as { session_id: string; player_id: string };
+        const { data: sess } = await supabase.from("sessions").select("*").eq("id", session_id).maybeSingle();
+        if (!sess || sess.status === "abandoned") { localStorage.removeItem(LS_KEY); return; }
+        const { data: player } = await supabase.from("players").select("*").eq("id", player_id).maybeSingle();
+        if (!player) { localStorage.removeItem(LS_KEY); return; }
+        const { data: players } = await supabase.from("players").select("*").eq("session_id", session_id).order("joined_at", { ascending: true });
+        await supabase.from("players").update({ last_seen_at: new Date().toISOString() }).eq("id", player_id);
+        setMpSession(sess as MPSession);
+        setMpPlayer(player as MPPlayer);
+        setMpPlayers((players ?? []) as MPPlayer[]);
+        console.log(`[Reconnect] Player ${player.display_name} reconnected to session ${sess.join_code}, current round ${sess.current_round ?? 0}`);
+        const st = sess.status;
+        if (st === "lobby") setScreen("mp-lobby");
+        else if (st === "active") setScreen("mp-battle");
+        else if (st === "ranking") setScreen("mp-rank");
+        else if (st === "completed") setScreen("mp-result");
+      } catch (e) {
+        console.error("reconnect error", e);
+        localStorage.removeItem(LS_KEY);
+      } finally {
+        setMpReconnecting(false);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cafes]);
+
+  const exitMP = () => {
+    localStorage.removeItem(LS_KEY);
+    setMpSession(null); setMpPlayer(null); setMpPlayers([]); setMpVotes([]); setMpMyPicks([]);
+    setScreen("welcome");
+  };
+
+
 
   if (loadError) return <ErrorScreen onRetry={() => setReloadKey((k) => k + 1)} />;
   if (!cafes) return <LoadingScreen />;
