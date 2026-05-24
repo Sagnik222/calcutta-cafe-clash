@@ -646,19 +646,62 @@ export default function App() {
           session={mpSession}
           me={mpPlayer}
           players={mpPlayers}
-          onRefresh={async () => {
-            const sess = await refreshLobby(mpSession.id);
-            if (sess && sess.status === "active") setScreen("mp-placeholder");
-          }}
           onLeave={leaveLobby}
           onStart={startHostSession}
         />
       )}
-      {screen === "mp-placeholder" && mpSession && (
-        <MPPlaceholder
+      {screen === "mp-battle" && mpSession && mpPlayer && mpSession.cafe_pairings && mpSession.current_round && (() => {
+        const pair = mpSession.cafe_pairings[mpSession.current_round - 1];
+        const a = pair && cafesById[pair[0]];
+        const b = pair && cafesById[pair[1]];
+        if (!a || !b) return null;
+        return (
+          <MPBattle
+            key={mpSession.current_round}
+            session={mpSession}
+            me={mpPlayer}
+            players={mpPlayers}
+            votes={mpVotes}
+            a={a}
+            b={b}
+            activePlayersOf={activePlayersOf}
+            onPick={castVote}
+            onExit={exitMP}
+          />
+        );
+      })()}
+      {screen === "mp-rank" && mpSession && mpPlayer && (
+        mpMyPicks.length > 0 ? (
+          <RankTopV
+            picks={mpMyPicks.map((id) => cafesById[id]).filter(Boolean)}
+            onDone={(order) => { void submitMyRanking(order); }}
+          />
+        ) : (
+          <div className="min-h-screen flex flex-col items-center justify-center">
+            <BrandTitle size={28} />
+            <p className="font-body italic text-sepia mt-3" style={{ fontSize: 12 }}>preparing your picks…</p>
+          </div>
+        )
+      )}
+      {screen === "mp-waiting-rank" && mpSession && mpPlayer && (
+        <MPWaitingRank players={mpPlayers} activePlayersOf={activePlayersOf} onExit={exitMP} />
+      )}
+      {screen === "mp-result" && mpSession && mpPlayer && mpSession.collective_ranking && (
+        <MPResult
           session={mpSession}
+          me={mpPlayer}
+          players={mpPlayers}
           cafesById={cafesById}
-          onExit={() => { setMpSession(null); setMpPlayer(null); setMpPlayers([]); setScreen("welcome"); }}
+          onExit={exitMP}
+          onShare={() => setScreen("mp-share")}
+        />
+      )}
+      {screen === "mp-share" && mpSession && mpPlayer && mpSession.collective_ranking && (
+        <MPSharePreview
+          session={mpSession}
+          players={mpPlayers}
+          cafesById={cafesById}
+          onBack={() => setScreen("mp-result")}
         />
       )}
       {screen === "battle" && tab === "battle" && battles[round] && (
