@@ -335,17 +335,31 @@ export default function App() {
   };
 
   const maybeAdvanceRound = async () => {
-    if (!isHostActor()) return;
     const sess = mpSessionRef.current;
-    if (!sess || sess.status !== "active" || !sess.current_round) return;
+    if (!sess || sess.status !== "active") return;
+    const currentRound = sess.current_round ?? 0;
+    if (currentRound === 0) return;
+    // Re-fetch players so newly-joined heartbeats aren't missed
+    const { data: pls } = await supabase
+      .from("players")
+      .select("id, display_name, status, last_seen_at, joined_at")
+      .eq("session_id", sess.id);
+    const active = activePlayersOf((pls as MPPlayer[] | null) ?? mpPlayersRef.current);
     const { data: votes } = await supabase
       .from("votes").select("player_id")
-      .eq("session_id", sess.id).eq("round_number", sess.current_round);
+      .eq("session_id", sess.id).eq("round_number", currentRound);
     const voterIds = new Set((votes ?? []).map((v) => v.player_id));
-    const active = activePlayersOf(mpPlayersRef.current);
-    if (active.length === 0) return;
-    const allVoted = active.every((p) => voterIds.has(p.id));
-    if (allVoted) await advanceRoundNow();
+    const activeCount = active.length;
+    const votesCount = active.filter((p) => voterIds.has(p.id)).length;
+    const willAdvance =
+      currentRound > 0 &&
+      activeCount >= 1 &&
+      votesCount >= 1 &&
+      votesCount >= activeCount;
+    console.log("[Advancement check]", { activeCount, votesCount, currentRound, willAdvance });
+    if (!willAdvance) return;
+    if (!isHostActor()) return; // only host writes the advancement
+    await advanceRoundNow();
   };
 
   const checkTimeout = async () => {
