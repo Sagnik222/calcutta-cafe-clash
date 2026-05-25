@@ -429,6 +429,7 @@ export default function App() {
       .select("id, individual_ranking, display_name").eq("session_id", sess.id);
     const ranked = (pls ?? []).filter((p) => Array.isArray(p.individual_ranking) && p.individual_ranking.length > 0);
     const active = activePlayersOf(mpPlayersRef.current);
+    console.log("[Borda] Computing... players with rankings:", ranked.length, "/ active:", active.length);
     if (ranked.length < active.length) return;
     const points: Record<string, number> = {};
     const firsts: Record<string, number> = {};
@@ -448,7 +449,7 @@ export default function App() {
       return (byId[a]?.name ?? "").localeCompare(byId[b]?.name ?? "");
     });
     const topN = sorted.slice(0, sess.cafe_pairings?.length ?? 5);
-    console.log("[Borda] Computed final ranking:", topN.map((id) => byId[id]?.name));
+    console.log("[Borda] Final ranking:", topN, topN.map((id) => byId[id]?.name));
     await supabase.from("sessions")
       .update({ collective_ranking: topN, status: "completed" })
       .eq("id", sess.id);
@@ -457,6 +458,7 @@ export default function App() {
   const submitMyRanking = async (order: string[]) => {
     const me = mpPlayerRef.current;
     if (!me) return;
+    console.log("[Ranking] Player", me.id, "submitted ranking:", order);
     await supabase.from("players")
       .update({ individual_ranking: order, status: "done" })
       .eq("id", me.id);
