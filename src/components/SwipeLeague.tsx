@@ -335,17 +335,31 @@ export default function App() {
   };
 
   const maybeAdvanceRound = async () => {
-    if (!isHostActor()) return;
     const sess = mpSessionRef.current;
-    if (!sess || sess.status !== "active" || !sess.current_round) return;
+    if (!sess || sess.status !== "active") return;
+    const currentRound = sess.current_round ?? 0;
+    if (currentRound === 0) return;
+    // Re-fetch players so newly-joined heartbeats aren't missed
+    const { data: pls } = await supabase
+      .from("players")
+      .select("id, display_name, status, last_seen_at, joined_at")
+      .eq("session_id", sess.id);
+    const active = activePlayersOf((pls as MPPlayer[] | null) ?? mpPlayersRef.current);
     const { data: votes } = await supabase
       .from("votes").select("player_id")
-      .eq("session_id", sess.id).eq("round_number", sess.current_round);
+      .eq("session_id", sess.id).eq("round_number", currentRound);
     const voterIds = new Set((votes ?? []).map((v) => v.player_id));
-    const active = activePlayersOf(mpPlayersRef.current);
-    if (active.length === 0) return;
-    const allVoted = active.every((p) => voterIds.has(p.id));
-    if (allVoted) await advanceRoundNow();
+    const activeCount = active.length;
+    const votesCount = active.filter((p) => voterIds.has(p.id)).length;
+    const willAdvance =
+      currentRound > 0 &&
+      activeCount >= 1 &&
+      votesCount >= 1 &&
+      votesCount >= activeCount;
+    console.log("[Advancement check]", { activeCount, votesCount, currentRound, willAdvance });
+    if (!willAdvance) return;
+    if (!isHostActor()) return; // only host writes the advancement
+    await advanceRoundNow();
   };
 
   const checkTimeout = async () => {
@@ -379,17 +393,26 @@ export default function App() {
     const sess = mpSessionRef.current; const me = mpPlayerRef.current;
     if (!sess || !me || !sess.current_round) return;
     const cafe = cafesById[cafeId];
-    console.log(`[Vote] Player ${me.display_name} voted for café ${cafe?.name ?? cafeId} in round ${sess.current_round}`);
     const { error } = await supabase.from("votes").insert({
       session_id: sess.id, player_id: me.id,
       round_number: sess.current_round, cafe_id: cafeId, is_abstain: false,
     });
     if (error) {
-      // unique-constraint duplicate is fine, swallow
       if (!String(error.message).toLowerCase().includes("duplicate") && error.code !== "23505") {
         console.error("vote insert error:", error);
       }
     }
+    // Re-query for accurate counts in log
+    const [{ data: votes }, { data: pls }] = await Promise.all([
+      supabase.from("votes").select("player_id").eq("session_id", sess.id).eq("round_number", sess.current_round),
+      supabase.from("players").select("id, status, last_seen_at, joined_at").eq("session_id", sess.id),
+    ]);
+    const active = activePlayersOf(((pls as MPPlayer[] | null) ?? []));
+    const voterIds = new Set((votes ?? []).map((v) => v.player_id));
+    const votesCount = active.filter((p) => voterIds.has(p.id)).length;
+    console.log(
+      `[Vote] Player ${me.display_name} voted for ${cafe?.name ?? cafeId} round: ${sess.current_round} — votes this round: ${votesCount} / active players: ${active.length}`,
+    );
     // optimistic local
     setMpVotes((prev) => prev.some((v) => v.player_id === me.id) ? prev : [
       ...prev,
@@ -406,6 +429,7 @@ export default function App() {
       .select("id, individual_ranking, display_name").eq("session_id", sess.id);
     const ranked = (pls ?? []).filter((p) => Array.isArray(p.individual_ranking) && p.individual_ranking.length > 0);
     const active = activePlayersOf(mpPlayersRef.current);
+    console.log("[Borda] Computing... players with rankings:", ranked.length, "/ active:", active.length);
     if (ranked.length < active.length) return;
     const points: Record<string, number> = {};
     const firsts: Record<string, number> = {};
@@ -425,7 +449,7 @@ export default function App() {
       return (byId[a]?.name ?? "").localeCompare(byId[b]?.name ?? "");
     });
     const topN = sorted.slice(0, sess.cafe_pairings?.length ?? 5);
-    console.log("[Borda] Computed final ranking:", topN.map((id) => byId[id]?.name));
+    console.log("[Borda] Final ranking:", topN, topN.map((id) => byId[id]?.name));
     await supabase.from("sessions")
       .update({ collective_ranking: topN, status: "completed" })
       .eq("id", sess.id);
@@ -434,6 +458,7 @@ export default function App() {
   const submitMyRanking = async (order: string[]) => {
     const me = mpPlayerRef.current;
     if (!me) return;
+    console.log("[Ranking] Player", me.id, "submitted ranking:", order);
     await supabase.from("players")
       .update({ individual_ranking: order, status: "done" })
       .eq("id", me.id);
@@ -458,6 +483,9 @@ export default function App() {
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "sessions", filter: `id=eq.${sid}` }, (payload) => {
         const newSess = payload.new as MPSession;
         const prev = mpSessionRef.current;
+        if (prev?.status !== newSess.status) {
+          console.log("[Status] Session status changed to:", newSess.status);
+        }
         setMpSession(newSess);
         if (newSess.status === "active" && prev?.status !== "active") {
           setMpVotes([]); setScreen("mp-battle");
@@ -527,6 +555,7 @@ export default function App() {
         .select("round_number, cafe_id")
         .eq("session_id", mpSession.id).eq("player_id", mpPlayer.id)
         .order("round_number", { ascending: true });
+      console.log("[Ranking] Player", mpPlayer.id, "votes loaded:", (data ?? []).length);
       const byRound = new Map<number, string>();
       (data ?? []).forEach((v) => byRound.set(v.round_number, v.cafe_id));
       const inserts: Array<{ session_id: string; player_id: string; round_number: number; cafe_id: string; is_abstain: boolean }> = [];
