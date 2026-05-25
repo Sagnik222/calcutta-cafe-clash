@@ -472,6 +472,9 @@ export default function App() {
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "sessions", filter: `id=eq.${sid}` }, (payload) => {
         const newSess = payload.new as MPSession;
         const prev = mpSessionRef.current;
+        if (prev?.status !== newSess.status) {
+          console.log("[Status] Session status changed to:", newSess.status);
+        }
         setMpSession(newSess);
         if (newSess.status === "active" && prev?.status !== "active") {
           setMpVotes([]); setScreen("mp-battle");
