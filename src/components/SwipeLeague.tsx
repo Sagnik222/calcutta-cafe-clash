@@ -555,6 +555,7 @@ export default function App() {
         .select("round_number, cafe_id")
         .eq("session_id", mpSession.id).eq("player_id", mpPlayer.id)
         .order("round_number", { ascending: true });
+      console.log("[Ranking] Player", mpPlayer.id, "votes loaded:", (data ?? []).length);
       const byRound = new Map<number, string>();
       (data ?? []).forEach((v) => byRound.set(v.round_number, v.cafe_id));
       const inserts: Array<{ session_id: string; player_id: string; round_number: number; cafe_id: string; is_abstain: boolean }> = [];
