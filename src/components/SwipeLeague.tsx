@@ -393,17 +393,26 @@ export default function App() {
     const sess = mpSessionRef.current; const me = mpPlayerRef.current;
     if (!sess || !me || !sess.current_round) return;
     const cafe = cafesById[cafeId];
-    console.log(`[Vote] Player ${me.display_name} voted for café ${cafe?.name ?? cafeId} in round ${sess.current_round}`);
     const { error } = await supabase.from("votes").insert({
       session_id: sess.id, player_id: me.id,
       round_number: sess.current_round, cafe_id: cafeId, is_abstain: false,
     });
     if (error) {
-      // unique-constraint duplicate is fine, swallow
       if (!String(error.message).toLowerCase().includes("duplicate") && error.code !== "23505") {
         console.error("vote insert error:", error);
       }
     }
+    // Re-query for accurate counts in log
+    const [{ data: votes }, { data: pls }] = await Promise.all([
+      supabase.from("votes").select("player_id").eq("session_id", sess.id).eq("round_number", sess.current_round),
+      supabase.from("players").select("id, status, last_seen_at, joined_at").eq("session_id", sess.id),
+    ]);
+    const active = activePlayersOf(((pls as MPPlayer[] | null) ?? []));
+    const voterIds = new Set((votes ?? []).map((v) => v.player_id));
+    const votesCount = active.filter((p) => voterIds.has(p.id)).length;
+    console.log(
+      `[Vote] Player ${me.display_name} voted for ${cafe?.name ?? cafeId} round: ${sess.current_round} — votes this round: ${votesCount} / active players: ${active.length}`,
+    );
     // optimistic local
     setMpVotes((prev) => prev.some((v) => v.player_id === me.id) ? prev : [
       ...prev,
