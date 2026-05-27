@@ -457,11 +457,31 @@ export default function App() {
 
   const submitMyRanking = async (order: string[]) => {
     const me = mpPlayerRef.current;
-    if (!me) return;
-    console.log("[Ranking] Player", me.id, "submitted ranking:", order);
-    await supabase.from("players")
+    console.log("[Ranking submit] About to save for player", me?.id, "ranking:", order);
+
+    if (!me) {
+      console.error("[Ranking submit] FAILED — playerId is missing");
+      return;
+    }
+
+    if (!order || order.length === 0) {
+      console.error("[Ranking submit] FAILED — ranking array empty");
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from("players")
       .update({ individual_ranking: order, status: "done" })
-      .eq("id", me.id);
+      .eq("id", me.id)
+      .select();
+
+    if (error) {
+      console.error("[Ranking submit] SAVE FAILED:", error);
+      alert("Failed to save your ranking. Please try again.");
+      return;
+    }
+
+    console.log("[Ranking submit] Saved successfully:", data);
     setMpPlayer({ ...me, individual_ranking: order, status: "done" });
     setScreen("mp-waiting-rank");
     setTimeout(() => { void computeBorda(); }, 400);
@@ -1971,7 +1991,13 @@ function MPResult({
           <h2 className="font-display text-forest mt-5" style={{ fontSize: 22, fontWeight: 500 }}>
             {regionName === "All Kolkata" ? `Your Kolkata Top ${ROMAN[yours.length - 1] ?? "V"}` : `Your ${regionName} Top ${ROMAN[yours.length - 1] ?? "V"}`}
           </h2>
-          <RankList picks={yours} firstByCafe={null} />
+          {yours.length === 0 ? (
+            <p className="font-body italic text-sepia mt-4 text-center" style={{ fontSize: 14 }}>
+              Rankings being calculated... please wait or refresh.
+            </p>
+          ) : (
+            <RankList picks={yours} firstByCafe={null} />
+          )}
         </>
       )}
       {view === "ours" && (
@@ -1979,7 +2005,13 @@ function MPResult({
           <h2 className="font-display text-forest mt-5" style={{ fontSize: 22, fontWeight: 500 }}>
             {regionName === "All Kolkata" ? `Our Kolkata Top ${ROMAN[ours.length - 1] ?? "V"}` : `Our ${regionName} Top ${ROMAN[ours.length - 1] ?? "V"}`}
           </h2>
-          <RankList picks={ours} firstByCafe={firstByCafe} />
+          {ours.length === 0 ? (
+            <p className="font-body italic text-sepia mt-4 text-center" style={{ fontSize: 14 }}>
+              Rankings being calculated... please wait or refresh.
+            </p>
+          ) : (
+            <RankList picks={ours} firstByCafe={firstByCafe} />
+          )}
         </>
       )}
 
