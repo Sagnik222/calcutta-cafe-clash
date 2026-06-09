@@ -128,6 +128,24 @@ function ContactPicker({ currentUserId, onFriendsFound }) {
     setManualSearching(false);
   };
 
+  const handleShare = async () => {
+    const shareData = {
+      title: 'Crown',
+      text: 'Rank cafes in Kolkata with me on Crown!',
+      url: 'https://calcutta-cafe-clash.vercel.app',
+    };
+    try {
+      if (navigator.share) {
+        await navigator.share(shareData);
+      } else {
+        await navigator.clipboard.writeText(shareData.url);
+        alert('Link copied to clipboard!');
+      }
+    } catch (err) {
+      console.log('Error sharing:', err);
+    }
+  };
+
   return (
     <div className="w-full">
       {/* Contact Picker Button */}
@@ -172,7 +190,12 @@ function ContactPicker({ currentUserId, onFriendsFound }) {
           {results.length === 0 ? (
             <div className="bg-cream/50 border border-sepia/20 rounded-lg p-5 text-center">
               <p className="font-body italic text-sepia text-sm">None of your selected contacts are on Crown yet.</p>
-              <p className="font-body text-sepia/60 text-xs mt-2">Invite them to join!</p>
+              <button 
+                onClick={handleShare}
+                className="mt-4 bg-forest text-cream font-serif uppercase tracking-widest text-[10px] px-6 py-2 rounded-full hover:bg-forest/90 transition-colors"
+              >
+                Invite them to join!
+              </button>
             </div>
           ) : (
             <div className="flex flex-col gap-2">
