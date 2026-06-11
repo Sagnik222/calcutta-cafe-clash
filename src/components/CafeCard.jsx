@@ -87,6 +87,30 @@ function CafeCard({ cafe, onVote, disabled }) {
             </div>
             
             <div className="p-6 max-h-[60vh] overflow-y-auto">
+              
+              {/* Detailed Info Section */}
+              <div className="flex flex-col sm:flex-row gap-4 mb-8 bg-sepia/5 p-4 rounded-lg border border-sepia/10">
+                <div className="flex-1">
+                  <div className="smallcaps text-forest text-[10px] tracking-widest font-bold mb-1">LOCATION</div>
+                  <p className="font-body text-ink text-sm mb-3">{cafe.neighborhood}, {cafe.region}</p>
+                  
+                  <div className="smallcaps text-forest text-[10px] tracking-widest font-bold mb-1">HOURS</div>
+                  <p className="font-body text-ink text-sm">
+                    {cafe.operating_hours || 'Usually 10:00 AM - 10:00 PM'}
+                  </p>
+                </div>
+                <div className="flex flex-col justify-center sm:border-l border-sepia/20 sm:pl-4">
+                  <a 
+                    href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(cafe.name + ' ' + cafe.neighborhood + ' Kolkata')}`}
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="flex items-center justify-center gap-2 bg-forest text-cream font-serif uppercase tracking-widest text-[10px] px-5 py-3 rounded hover:bg-forest/90 transition-colors shadow-sm"
+                  >
+                    <span>🗺️</span> Get Directions
+                  </a>
+                </div>
+              </div>
+
               <div className="smallcaps text-sepia mb-6 text-center text-xs tracking-widest font-bold">What people are saying</div>
               <div className="space-y-4">
                 {cafe.google_reviews && cafe.google_reviews.length > 0 ? (
