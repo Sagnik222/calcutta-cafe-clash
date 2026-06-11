@@ -1,7 +1,18 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 
 function CafeCard({ cafe, onVote, disabled }) {
   const [showReviews, setShowReviews] = useState(false);
+
+  useEffect(() => {
+    if (showReviews) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [showReviews]);
 
   if (!cafe) return null;
 
